@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DomainDataset } from '@ecp/shared';
 import { Configuration } from './components/Configuration';
 import { DependencyGraph } from './components/DependencyGraph';
+import { GanttBoard } from './components/GanttBoard';
 import { JiraLink } from './components/JiraLink';
 import { StatusStrip } from './components/StatusStrip';
 import { Timeline } from './components/Timeline';
@@ -83,7 +84,9 @@ function Planner({
     [scope, selection],
   );
 
-  const [tab, setTab] = useState<'timeline' | 'dependencies' | 'configuration'>('timeline');
+  const [tab, setTab] = useState<'timeline' | 'dependencies' | 'gantt' | 'configuration'>(
+    'timeline',
+  );
   const result = useMemo(() => runScenario(scope, scenario), [scope, scenario]);
 
   return (
@@ -114,6 +117,14 @@ function Planner({
             onClick={() => setTab('dependencies')}
           >
             Dependencies
+          </button>
+          <button
+            type="button"
+            className={`tab${tab === 'gantt' ? ' active' : ''}`}
+            data-testid="tab-gantt"
+            onClick={() => setTab('gantt')}
+          >
+            Gantt Planner
           </button>
           <button
             type="button"
@@ -149,6 +160,8 @@ function Planner({
       )}
 
       {tab === 'dependencies' && <DependencyGraph scope={scope} scenario={scenario} />}
+
+      {tab === 'gantt' && <GanttBoard scope={scope} source={source} />}
 
       {tab === 'configuration' && (
         <Configuration

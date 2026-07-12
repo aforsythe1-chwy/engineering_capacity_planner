@@ -39,6 +39,13 @@ describe('settings', () => {
     expect(JSON.parse(settings.find((s) => s.key === SETTING_KEYS.JIRA_PROJECT_KEY)!.value)).toBe('CKT');
   });
 
+  it('accepts the Gantt week-yellow fraction within 0–1 and rejects out of range', () => {
+    const settings = repo.upsertGlobalSettings(db, { [SETTING_KEYS.WEEK_YELLOW_LOAD_FRACTION]: 0.9 });
+    expect(JSON.parse(settings.find((s) => s.key === SETTING_KEYS.WEEK_YELLOW_LOAD_FRACTION)!.value)).toBe(0.9);
+    expectHttp(() => repo.upsertGlobalSettings(db, { [SETTING_KEYS.WEEK_YELLOW_LOAD_FRACTION]: 1.5 }), 400);
+    expectHttp(() => repo.upsertGlobalSettings(db, { [SETTING_KEYS.WEEK_YELLOW_LOAD_FRACTION]: -0.1 }), 400);
+  });
+
   it('rejects unknown keys and bad value types', () => {
     expectHttp(() => repo.upsertGlobalSettings(db, { not_a_setting: 1 }), 400);
     expectHttp(() => repo.upsertGlobalSettings(db, { [SETTING_KEYS.ONCALL_MULTIPLIER]: 'x' }), 400);
@@ -185,5 +192,40 @@ describe('epic milestones (gating invariant)', () => {
   it('404s unknown milestones', () => {
     expectHttp(() => repo.updateMilestone(db, 'nope', { name: 'x' }), 404);
     expectHttp(() => repo.deleteMilestone(db, 'nope'), 404);
+  });
+});
+
+describe('placements (Gantt Planner)', () => {
+  // Start from an empty board so assertions don't depend on the seeded plan.
+  beforeEach(() => {
+    db.prepare('DELETE FROM planned_placement').run();
+  });
+
+  it('places a work item into a sprint week and persists it', () => {
+    const p = repo.upsertPlacement(db, { workItemKey: 'CKT-1', sprintId: 'SP1', weekIndex: 0 });
+    expect(p).toMatchObject({ workItemKey: 'CKT-1', sprintId: 'SP1', weekIndex: 0 });
+    const persisted = readDataset(db).placements.find((x) => x.workItemKey === 'CKT-1')!;
+    expect(persisted.sprintId).toBe('SP1');
+  });
+
+  it('moves a work item rather than duplicating it (one placement per item)', () => {
+    repo.upsertPlacement(db, { workItemKey: 'CKT-1', sprintId: 'SP1', weekIndex: 0 });
+    repo.upsertPlacement(db, { workItemKey: 'CKT-1', sprintId: 'SP2', weekIndex: 1 });
+    const placements = readDataset(db).placements.filter((x) => x.workItemKey === 'CKT-1');
+    expect(placements).toHaveLength(1);
+    expect(placements[0]).toMatchObject({ sprintId: 'SP2', weekIndex: 1 });
+  });
+
+  it('removes a placement (back to the backlog bag)', () => {
+    repo.upsertPlacement(db, { workItemKey: 'CKT-1', sprintId: 'SP1', weekIndex: 0 });
+    repo.deletePlacement(db, 'CKT-1');
+    expect(readDataset(db).placements.find((x) => x.workItemKey === 'CKT-1')).toBeUndefined();
+  });
+
+  it('validates the input, the references, and the week range', () => {
+    expectHttp(() => repo.upsertPlacement(db, { workItemKey: 'CKT-1', sprintId: 'SP1', weekIndex: 9 }), 400);
+    expectHttp(() => repo.upsertPlacement(db, { workItemKey: 'NOPE', sprintId: 'SP1', weekIndex: 0 }), 404);
+    expectHttp(() => repo.upsertPlacement(db, { workItemKey: 'CKT-1', sprintId: 'NOPE', weekIndex: 0 }), 404);
+    expectHttp(() => repo.deletePlacement(db, 'CKT-1'), 404); // nothing placed yet
   });
 });
