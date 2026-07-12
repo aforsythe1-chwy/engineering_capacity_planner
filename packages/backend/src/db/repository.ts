@@ -96,6 +96,8 @@ const memberRow = (r: any): TeamMember => ({
   name: r.name,
   baseVelocity: r.base_velocity,
   active: r.active === 1,
+  jiraAccountId: r.jira_account_id ?? null,
+  avatarUrl: r.avatar_url ?? null,
 });
 
 const teamRow = (r: any): Team => ({
@@ -175,6 +177,7 @@ const EDITABLE_SETTINGS: Record<string, (value: unknown, key: string) => unknown
   [SETTING_KEYS.JIRA_BLOCKS_LINK_TYPE]: nullableString,
   [SETTING_KEYS.JIRA_EPIC_KEY]: nullableString,
   [SETTING_KEYS.JIRA_BOARD_ID]: nullableString,
+  [SETTING_KEYS.JIRA_BOARD_NAME]: nullableString,
   [SETTING_KEYS.JIRA_SPRINT_FIELD]: nullableString,
   [SETTING_KEYS.JIRA_LABELS_FIELD]: nullableString,
 };
@@ -274,7 +277,21 @@ function assertWorkingDays(value: unknown): Weekday[] {
 // Members
 // ---------------------------------------------------------------------------
 
-export function createMember(db: Db, input: { teamId: unknown; name: unknown; baseVelocity: unknown; active?: unknown }): TeamMember {
+/** Optional non-empty string, or null to clear it (Jira link / avatar URL). */
+function nullableTrimmed(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw badRequest(`${field} must be a string or null`);
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+export function createMember(
+  db: Db,
+  input: {
+    teamId: unknown; name: unknown; baseVelocity: unknown; active?: unknown;
+    jiraAccountId?: unknown; avatarUrl?: unknown;
+  },
+): TeamMember {
   const teamId = assertNonEmptyString(input.teamId, 'teamId');
   requireTeam(db, teamId);
   const member: TeamMember = {
@@ -283,10 +300,12 @@ export function createMember(db: Db, input: { teamId: unknown; name: unknown; ba
     name: assertNonEmptyString(input.name, 'name'),
     baseVelocity: assertNumber(input.baseVelocity, 'baseVelocity', { min: 0 }),
     active: input.active === undefined ? true : Boolean(input.active),
+    jiraAccountId: nullableTrimmed(input.jiraAccountId, 'jiraAccountId'),
+    avatarUrl: nullableTrimmed(input.avatarUrl, 'avatarUrl'),
   };
   db.prepare(
-    `INSERT INTO team_member (id, team_id, name, base_velocity, active)
-     VALUES (@id, @teamId, @name, @baseVelocity, @active)`,
+    `INSERT INTO team_member (id, team_id, name, base_velocity, active, jira_account_id, avatar_url)
+     VALUES (@id, @teamId, @name, @baseVelocity, @active, @jiraAccountId, @avatarUrl)`,
   ).run({ ...member, active: member.active ? 1 : 0 });
   return member;
 }
@@ -294,7 +313,7 @@ export function createMember(db: Db, input: { teamId: unknown; name: unknown; ba
 export function updateMember(
   db: Db,
   id: string,
-  patch: { name?: unknown; baseVelocity?: unknown; active?: unknown },
+  patch: { name?: unknown; baseVelocity?: unknown; active?: unknown; jiraAccountId?: unknown; avatarUrl?: unknown },
 ): TeamMember {
   requireMember(db, id);
   const current = memberRow(db.prepare('SELECT * FROM team_member WHERE id = ?').get(id));
@@ -304,9 +323,17 @@ export function updateMember(
     next.baseVelocity = assertNumber(patch.baseVelocity, 'baseVelocity', { min: 0 });
   }
   if (patch.active !== undefined) next.active = Boolean(patch.active);
+  if (patch.jiraAccountId !== undefined) next.jiraAccountId = nullableTrimmed(patch.jiraAccountId, 'jiraAccountId');
+  if (patch.avatarUrl !== undefined) next.avatarUrl = nullableTrimmed(patch.avatarUrl, 'avatarUrl');
   db.prepare(
-    `UPDATE team_member SET name = @name, base_velocity = @baseVelocity, active = @active WHERE id = @id`,
-  ).run({ ...next, active: next.active ? 1 : 0 });
+    `UPDATE team_member SET name = @name, base_velocity = @baseVelocity, active = @active,
+       jira_account_id = @jiraAccountId, avatar_url = @avatarUrl WHERE id = @id`,
+  ).run({
+    ...next,
+    active: next.active ? 1 : 0,
+    jiraAccountId: next.jiraAccountId ?? null,
+    avatarUrl: next.avatarUrl ?? null,
+  });
   return next;
 }
 

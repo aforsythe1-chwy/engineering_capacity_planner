@@ -37,10 +37,17 @@ export const SETTING_KEYS = {
   JIRA_EPIC_KEY: 'jira_epic_key',
   /** Agile board id used to read sprints; blank = auto-discover the project's board. */
   JIRA_BOARD_ID: 'jira_board_id',
+  /** Human-readable name of the selected board, for display in the setup wizard. */
+  JIRA_BOARD_NAME: 'jira_board_name',
   /** Custom field id carrying the sprint, e.g. `"customfield_10020"`. */
   JIRA_SPRINT_FIELD: 'jira_sprint_field',
   /** Field id carrying the labels that feed Gantt lanes (default the native `labels`). */
   JIRA_LABELS_FIELD: 'jira_labels_field',
+  /**
+   * ISO-8601 datetime of the last successful sync, written by the sync endpoint.
+   * Drives the top-nav Sync button's freshness color; `null` until first sync.
+   */
+  LAST_SYNCED_AT: 'last_synced_at',
 } as const;
 
 /** Default cadence values (project plan §4, decision #1). */
@@ -83,7 +90,37 @@ export function defaultGlobalSettings(): Setting[] {
     global(SETTING_KEYS.JIRA_BLOCKS_LINK_TYPE, null),
     global(SETTING_KEYS.JIRA_EPIC_KEY, null),
     global(SETTING_KEYS.JIRA_BOARD_ID, null),
+    global(SETTING_KEYS.JIRA_BOARD_NAME, null),
     global(SETTING_KEYS.JIRA_SPRINT_FIELD, null),
     global(SETTING_KEYS.JIRA_LABELS_FIELD, null),
+    global(SETTING_KEYS.LAST_SYNCED_AT, null),
   ];
+}
+
+/** Decode a global string setting, or `null` when absent/blank/non-string. */
+export function globalStringSetting(settings: Setting[], key: string): string | null {
+  const row = settings.find((s) => s.scope === 'global' && s.key === key);
+  if (!row) return null;
+  try {
+    const v = JSON.parse(row.value) as unknown;
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Jira field mapping is "complete enough to sync" once the three values
+ * {@link resolveMapping} requires are present: the project key, the story-points
+ * field, and the "blocks" link type. This is the single signal both the backend
+ * and the frontend use to decide whether Jira setup is done — e.g. to unlock the
+ * top-nav Sync button. Board / epic / sprint / labels have working fallbacks, so
+ * they're not part of the gate.
+ */
+export function isMappingComplete(settings: Setting[]): boolean {
+  return (
+    globalStringSetting(settings, SETTING_KEYS.JIRA_PROJECT_KEY) !== null &&
+    globalStringSetting(settings, SETTING_KEYS.JIRA_STORY_POINTS_FIELD) !== null &&
+    globalStringSetting(settings, SETTING_KEYS.JIRA_BLOCKS_LINK_TYPE) !== null
+  );
 }
