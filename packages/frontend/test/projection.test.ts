@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { loadDataset } from '../src/data/loadDataset';
+import { loadBundledDataset } from '../src/data/loadDataset';
 import { effectiveWorkItems, runScenario, scopeEpic, type Scenario } from '../src/lib/projection';
 
-const dataset = loadDataset();
+const dataset = loadBundledDataset();
 const scope = scopeEpic(dataset, 'CKT');
 
 const baseScenario = (): Scenario => ({
-  today: scope.team.sprintAnchorDate,
+  today: scope.planningToday ?? scope.team.sprintAnchorDate,
   cutItemKeys: new Set(),
   doneItemKeys: new Set(),
   greenMinBufferDays: scope.defaults.greenMinBufferDays,

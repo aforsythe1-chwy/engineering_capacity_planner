@@ -1,20 +1,42 @@
 import Fastify from 'fastify';
+import { type AppConfig, loadConfig, loadDotenv } from './config.js';
 import { openDatabase } from './db/database.js';
-import { readDataset } from './db/persist.js';
+import { readDataset, writeDataset } from './db/persist.js';
+import { createImporter } from './importer/factory.js';
 
 /**
- * Minimal localhost API. Phase 1 exposes just enough to confirm the imported
- * data is queryable; the timeline and capacity endpoints arrive in later
- * phases. The database path is read from `ECP_DB_PATH` (defaults to a local
- * file).
+ * Minimal localhost API serving the domain data to the frontend.
+ *
+ * All environment-specific behavior comes from {@link AppConfig}; pass a partial
+ * override for tests. The database is the source of truth — if it's empty on
+ * startup and `seedIfEmpty` is set, it's populated from the configured importer
+ * (synthetic today, Jira in Phase 7), so `npm run dev` works with zero setup.
  */
-export function buildServer(dbPath = process.env.ECP_DB_PATH ?? './data/ecp.db') {
+export async function buildServer(overrides: Partial<AppConfig> = {}) {
+  const config: AppConfig = { ...loadConfig(), ...overrides };
+
   const app = Fastify({ logger: true });
-  const db = openDatabase({ path: dbPath });
+  const db = openDatabase({ path: config.dbPath });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  if (config.seedIfEmpty) {
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM epic').get() as { n: number };
+    if (n === 0) {
+      const importer = createImporter(config);
+      app.log.info(`Empty database — importing from "${importer.name}" source`);
+      writeDataset(db, await importer.fetch());
+    }
+  }
 
-  // Lightweight summary of what's in the database (useful for verification).
+  // CORS origin is configurable; `*` by default for local dev (read-only API).
+  app.addHook('onRequest', async (req, reply) => {
+    reply.header('Access-Control-Allow-Origin', config.corsOrigin);
+    reply.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') reply.send();
+  });
+
+  app.get('/health', async () => ({ status: 'ok', dataSource: config.dataSource }));
+
   app.get('/api/summary', async () => {
     const data = readDataset(db);
     return {
@@ -40,10 +62,13 @@ export function buildServer(dbPath = process.env.ECP_DB_PATH ?? './data/ecp.db')
 // Entry point: `npm start` after a build, or `npm run dev` via tsx.
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
-  const app = buildServer();
-  const port = Number(process.env.PORT ?? 3001);
-  app.listen({ port, host: '127.0.0.1' }).catch((err) => {
-    app.log.error(err);
-    process.exit(1);
-  });
+  loadDotenv();
+  const config = loadConfig();
+  buildServer()
+    .then((app) => app.listen({ port: config.port, host: config.host }))
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      process.exit(1);
+    });
 }
