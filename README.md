@@ -140,6 +140,88 @@ npm run export:obfuscated -w @ecp/backend -- --from-demo
 Tests load that fixture via `fakeClientFromFixture` / `datasetFromJira` so the
 importer and mapper stay exercised against real topology.
 
+## Encrypted offline Jira store
+
+An encrypted Jira store is an immutable, password-protected snapshot of one
+planner-visible board plus its selected local planning state. The tracked
+`.jira-store.enc` file is ciphertext; the passphrase travels separately. At
+runtime it seeds a normal, writable, gitignored SQLite database, so planning
+edits never modify the store. This supports an already-provisioned workstation
+with networking disabled; a fresh air-gapped machine also needs a matching Node
+runtime and installed native dependencies.
+
+The captured profile intentionally excludes descriptions, comments, attachments,
+worklogs, and Jira credentials. Replay is a frozen snapshot: it supports the
+planner's Jira reads and offline sync reconciliation, but cannot perform Jira
+writes or open outbound Jira links.
+
+### Create or refresh a store
+
+First sync the source SQLite DB against the intended Jira board and confirm its
+mapping. The commands use the configured Personal 1Password item by default;
+they require only an installed, signed-in `op` CLI. Then capture, verify, and
+review the encrypted result:
+
+```bash
+nvm use
+npm run jira-store:capture -- \
+  --db ./packages/backend/data/source.db \
+  --out ./packages/backend/testdata/team-board.jira-store.enc
+npm run jira-store:verify -- \
+  --store ./packages/backend/testdata/team-board.jira-store.enc
+npm run jira-store:diff -- \
+  --before ./packages/backend/testdata/previous-team-board.jira-store.enc \
+  --after ./packages/backend/testdata/team-board.jira-store.enc
+```
+
+The commands print only safe structural summaries. The capture command reads Jira
+using the existing configured credentials; it never includes those credentials in
+the store. Avatar fetching is intentionally not enabled in the first profile, so
+the verification summary reports avatar fallbacks.
+
+### Safely commit the encrypted store
+
+Confirm the output ends exactly in `.jira-store.enc`. Confirm plaintext variants,
+password files, caches, SQLite files, and `.env.offline.local` are ignored; do not
+commit any of them. Review the working tree, stage the exact ciphertext path, and
+inspect the staged diff and size before committing:
+
+```bash
+git status --short --ignored
+git add -- packages/backend/testdata/team-board.jira-store.enc
+git diff --cached --stat
+git diff --cached -- packages/backend/testdata/team-board.jira-store.enc
+```
+
+Deliver the password separately from Git and never place it in a PR, issue,
+commit, command line, or repository file. Re-encryption does not revoke access to
+older Git history: old ciphertext plus its old password remains decryptable.
+
+### Set up and reset replay
+
+Obtain the password separately, copy `.env.offline.example` to the gitignored
+`.env.offline.local`. The app invokes `op read` against the default 1Password
+item directly and never writes the password to disk. Set
+`ECP_JIRA_STORE_PASSWORD_OP_REF` only to override the default (for example, a
+team vault); a password-file path outside the repository remains supported for
+machines without the 1Password CLI.
+Start with `npm run dev:offline`; `/health` reports `dataSource: "jira-store"`
+and `offline: true`. The first run seeds the configured database. Connect, board,
+field, member, ticket, and sync flows then use only the in-memory replay.
+
+To discard local planning experiments and rebuild the baseline, run:
+
+```bash
+nvm use
+npm run jira-store:reset-db -- \
+  --store ./packages/backend/testdata/team-board.jira-store.enc \
+  --db ./packages/backend/data/offline-jira.db
+```
+
+The reset command moves the prior DB to a timestamped snapshot before rebuilding.
+Use a new DB path or reset deliberately when changing stores; the runtime refuses
+to mix a database with a different store identity.
+
 > `seed:local` seeds this machine's SQLite file. Its Phase 7 counterpart,
 > `seed:jira`, pushes the same synthetic dataset into a real Jira instance so the
 > sync round-trip can be exercised end-to-end.

@@ -52,6 +52,9 @@ export const SETTING_KEYS = {
    * Drives the top-nav Sync button's freshness color; `null` until first sync.
    */
   LAST_SYNCED_AT: 'last_synced_at',
+  /** Identity of the immutable encrypted Jira replay store backing this DB. */
+  JIRA_STORE_ID: 'jira_store_id',
+  JIRA_STORE_SCHEMA_VERSION: 'jira_store_schema_version',
 } as const;
 
 /** Default cadence values (project plan §4, decision #1). */

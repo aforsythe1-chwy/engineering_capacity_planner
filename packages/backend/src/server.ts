@@ -6,6 +6,10 @@ import { createImporter } from './importer/factory.js';
 import { HttpError } from './http-error.js';
 import type { JiraClient } from './jira/client.js';
 import { createDemoJiraClient, DEMO_MAPPING } from './jira/demo.js';
+import { loadJiraStore } from './jira/store/load.js';
+import { ReplayJiraClient } from './jira/store/replay-client.js';
+import type { OfflineJiraStoreV1 } from './jira/store/schema.js';
+import { SETTING_KEYS } from '@ecp/shared';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerDbRoutes } from './routes/db.js';
 import { registerJiraRoutes } from './routes/jira.js';
@@ -30,11 +34,44 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   let config: AppConfig = { ...loadConfig(), ...overrides };
 
   const app = Fastify({ logger: true });
-  const db = openDatabase({ path: config.dbPath });
+  let store: OfflineJiraStoreV1 | undefined;
 
   // Demo mode: stand up a pre-seeded fake Jira and default its mapping, so the
   // field mapper + Sync work in the real app with no credentials.
   let jiraClient = deps.jiraClient;
+  if (config.dataSource === 'jira-store') {
+    if (!config.jiraStorePath || (!config.jiraStorePasswordFile && !config.jiraStorePasswordOpRef)) {
+      throw new Error('Offline Jira replay requires ECP_JIRA_STORE_PATH and a password file or 1Password secret reference.');
+    }
+    store = await loadJiraStore(config.jiraStorePath, {
+      passwordFile: config.jiraStorePasswordFile,
+      opRef: config.jiraStorePasswordOpRef,
+    });
+    jiraClient = new ReplayJiraClient(store);
+    config = {
+      ...config,
+      jira: {
+        ...config.jira,
+        projectKey: store.mapping.projectKey,
+        storyPointsField: store.mapping.storyPointsField,
+        blocksLinkType: store.mapping.blocksLinkType,
+      },
+    };
+    app.log.info('Offline Jira replay loaded and authenticated');
+  }
+  const db = openDatabase({ path: config.dbPath });
+  if (store) {
+    const current = db.prepare("SELECT value FROM settings WHERE key = ? AND scope = 'global' AND scope_id = ''")
+      .get(SETTING_KEYS.JIRA_STORE_ID) as { value: string } | undefined;
+    const existing = current ? JSON.parse(current.value) : null;
+    if (existing && existing !== store.storeId) {
+      throw new Error('This SQLite database belongs to a different encrypted Jira store. Use a new ECP_DB_PATH or run jira-store:reset-db.');
+    }
+    if (!existing) {
+      const count = db.prepare('SELECT COUNT(*) AS n FROM epic').get() as { n: number };
+      if (count.n > 0) throw new Error('This SQLite database is not associated with an encrypted Jira store. Use a new ECP_DB_PATH or run jira-store:reset-db.');
+    }
+  }
   if (config.jiraFake && !jiraClient) {
     jiraClient = await createDemoJiraClient(config.syntheticSeed);
     config = {
@@ -53,9 +90,18 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   if (config.seedIfEmpty) {
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM epic').get() as { n: number };
     if (n === 0) {
-      const importer = createImporter(config, [], jiraClient);
-      app.log.info(`Empty database — importing from "${importer.name}" source`);
-      writeDataset(db, await importer.fetch());
+      if (store) {
+        writeDataset(db, store.ecpSeed.dataset);
+        for (const [key, value] of [[SETTING_KEYS.JIRA_STORE_ID, store.storeId], [SETTING_KEYS.JIRA_STORE_SCHEMA_VERSION, store.schemaVersion]]) {
+          db.prepare("INSERT INTO settings (key, scope, scope_id, value) VALUES (?, 'global', '', ?) ON CONFLICT(key, scope, scope_id) DO UPDATE SET value = excluded.value")
+            .run(key, JSON.stringify(value));
+        }
+        app.log.info('Empty database — seeded from encrypted Jira replay');
+      } else {
+        const importer = createImporter(config, [], jiraClient);
+        app.log.info(`Empty database — importing from "${importer.name}" source`);
+        writeDataset(db, await importer.fetch());
+      }
     }
   }
 
@@ -77,7 +123,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
     return reply.code(500).send({ error: 'Internal Server Error' });
   });
 
-  app.get('/health', async () => ({ status: 'ok', dataSource: config.dataSource }));
+  app.get('/health', async () => ({ status: 'ok', dataSource: config.dataSource, ...(store ? { offline: true } : {}) }));
 
   app.get('/api/summary', async () => {
     const data = readDataset(db);

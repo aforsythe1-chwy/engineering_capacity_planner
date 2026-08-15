@@ -35,3 +35,7 @@ npm-debug.log*
 # Env
 .env
 .env.local
+.env.offline.local
+*.jira-store.json
+*.jira-store.dec
+*.jira-store-password*

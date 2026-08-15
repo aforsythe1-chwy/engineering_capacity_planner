@@ -15,7 +15,10 @@ import { fileURLToPath } from 'node:url';
  */
 
 /** Which importer feeds the domain model. */
-export type DataSource = 'synthetic' | 'jira';
+export type DataSource = 'synthetic' | 'jira' | 'jira-store';
+
+/** Default personal 1Password item for local encrypted Jira-store operations. */
+export const DEFAULT_JIRA_STORE_PASSWORD_OP_REF = 'op://Personal/kpwifhg4admvawxlenjusswb6m/password';
 
 export interface JiraConfig {
   /** e.g. `https://your-org.atlassian.net`. */
@@ -50,6 +53,11 @@ export interface AppConfig {
    * and Sync in the real app offline. Implies `dataSource: 'jira'`.
    */
   jiraFake: boolean;
+  /** Immutable encrypted offline replay source. */
+  jiraStorePath: string | null;
+  jiraStorePasswordFile: string | null;
+  /** 1Password secret reference, read with `op read` at runtime. */
+  jiraStorePasswordOpRef: string | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -72,8 +80,8 @@ function int(v: string | undefined, def: number): number {
 
 function dataSource(v: string | undefined): DataSource {
   const s = (v ?? 'synthetic').toLowerCase();
-  if (s === 'synthetic' || s === 'jira') return s;
-  throw new Error(`Invalid ECP_DATA_SOURCE "${v}" (expected "synthetic" or "jira")`);
+  if (s === 'synthetic' || s === 'jira' || s === 'jira-store') return s;
+  throw new Error(`Invalid ECP_DATA_SOURCE "${v}" (expected "synthetic", "jira", or "jira-store")`);
 }
 
 function flavor(v: string | undefined): JiraConfig['flavor'] {
@@ -94,6 +102,11 @@ export function loadConfig(env: Env = process.env): AppConfig {
     seedIfEmpty: bool(env.ECP_SEED_IF_EMPTY, true),
     syntheticSeed: int(env.ECP_SYNTHETIC_SEED, 1),
     jiraFake: bool(env.ECP_JIRA_FAKE, false),
+    jiraStorePath: str(env.ECP_JIRA_STORE_PATH),
+    jiraStorePasswordFile: str(env.ECP_JIRA_STORE_PASSWORD_FILE),
+    jiraStorePasswordOpRef: str(env.ECP_JIRA_STORE_PASSWORD_FILE)
+      ? null
+      : str(env.ECP_JIRA_STORE_PASSWORD_OP_REF, DEFAULT_JIRA_STORE_PASSWORD_OP_REF),
     jira: {
       baseUrl: str(env.JIRA_BASE_URL),
       email: str(env.JIRA_EMAIL),

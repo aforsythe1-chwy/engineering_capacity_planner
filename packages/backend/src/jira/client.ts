@@ -56,6 +56,8 @@ export interface JiraClient {
    * optionally narrowed by project and board-name search.
    */
   listBoards(projectKeyOrId?: string, name?: string): Promise<JiraBoard[]>;
+  /** All issues currently in an Agile board's filter, fully paginated. */
+  listBoardIssues(boardId: number, fields: string[]): Promise<JiraIssue[]>;
   /** `GET /rest/agile/1.0/board/{boardId}/sprint` — a board's sprints. */
   listSprints(boardId: number): Promise<JiraSprint[]>;
 

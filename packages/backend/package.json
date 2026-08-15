@@ -14,6 +14,10 @@
     "seed:jira": "tsx src/scripts/seed-jira.ts",
     "export:fixture": "tsx src/scripts/export-fixture.ts",
     "export:obfuscated": "tsx src/scripts/export-obfuscated.ts",
+    "jira-store:capture": "tsx src/scripts/capture-jira-store.ts",
+    "jira-store:verify": "tsx src/scripts/verify-jira-store.ts",
+    "jira-store:diff": "tsx src/scripts/diff-jira-store.ts",
+    "jira-store:reset-db": "tsx src/scripts/reset-offline-db.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js"
   },

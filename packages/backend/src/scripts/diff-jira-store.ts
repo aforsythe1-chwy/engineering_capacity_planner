@@ -1,0 +1,4 @@
+import { arg, load, passwordSource } from './jira-store-common.js';
+const password = passwordSource(); const [before, after] = await Promise.all([load(arg('--before')!, password), load(arg('--after')!, password)]);
+const keys = (s: typeof before) => new Set(s.jira.issues.map((i) => i.key)); const a = keys(before), b = keys(after); const added = [...b].filter((key) => !a.has(key)), removed = [...a].filter((key) => !b.has(key));
+console.log(JSON.stringify({ addedIssues: added.length, removedIssues: removed.length, issueDelta: after.jira.issues.length - before.jira.issues.length, sprintDelta: Object.values(after.jira.sprintsByBoard).flat().length - Object.values(before.jira.sprintsByBoard).flat().length, seedWorkItemDelta: after.ecpSeed.dataset.workItems.length - before.ecpSeed.dataset.workItems.length, mappingChanged: JSON.stringify(before.mapping) !== JSON.stringify(after.mapping) }, null, 2));

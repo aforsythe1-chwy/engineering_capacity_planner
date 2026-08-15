@@ -35,7 +35,8 @@ export function createImporter(
   switch (config.dataSource) {
     case 'synthetic':
       return new SyntheticImporter({ seed: config.syntheticSeed });
-    case 'jira': {
+    case 'jira':
+    case 'jira-store': {
       const client = buildJiraClient(config.jira, clientOverride);
       return new JiraImporter(client, resolveMapping(settings, config.jira), {
         // Dump raw Jira responses beside the DB (gitignored) so
