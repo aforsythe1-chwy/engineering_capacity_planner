@@ -38,6 +38,13 @@ on 22; see `.nvmrc`).
 
 ## Configuration Setup
 
+### Unified epic management
+
+The **Configuration → Epics** panel is the single place to add or remove plan epics, choose
+Timeline versus Ongoing work, edit relevant days, set Gantt label rules, and maintain ownership.
+Ownership is derived from the ordered knowledge list: the first SME is the owner, later entries
+are additional experts, and people not listed have no stored experience for that epic.
+
 Nothing environment-specific is hardcoded. All config comes from environment
 variables, and a single `.env` at the repo root serves both the backend and the
 Vite frontend. Copy the template and edit:
@@ -266,6 +273,12 @@ docs/         project plan
 The full spec lives in
 [`docs/sprint-planning-tool-project-plan.md`](docs/sprint-planning-tool-project-plan.md).
 This section tracks status and notes as we go.
+
+The next architecture milestone is the
+[**Portfolio Capacity Planner**](docs/portfolio-capacity-planner-plan.md): board-scoped multi-epic
+import, shared team-capacity forecasting, portfolio health, and engineer-load visibility. That plan
+supersedes the single-epic assumptions in the original roadmap while preserving its epic-level
+timeline, dependency, Gantt, and configuration features as drill-downs.
 
 ## Roadmap
 

@@ -273,6 +273,15 @@ export class FakeJiraClient implements JiraClient {
     return (this.sprintsByBoard.get(boardId) ?? []).map((s) => ({ ...s }));
   }
 
+  async listBoardIssues(boardId: number, fields: string[]): Promise<JiraIssue[]> {
+    const board = this.boards.find((candidate) => candidate.id === boardId);
+    if (!board) throw new Error(`Fake Jira: board ${boardId} not found`);
+    const projectKey = board.location?.projectKey;
+    return [...this.issues.values()]
+      .filter((issue) => !projectKey || this.projectKeyOf(issue.key) === projectKey)
+      .map((issue) => ({ id: issue.id, key: issue.key, fields: project(issue.fields, fields) }));
+  }
+
   // --- Write ---------------------------------------------------------------
   async createIssue(input: JiraCreateIssueInput): Promise<JiraCreatedIssue> {
     const f = input.fields;

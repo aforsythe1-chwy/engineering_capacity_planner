@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadBundledDataset } from '../src/data/loadDataset';
-import { effectiveWorkItems, runScenario, scopeEpic, type Scenario } from '../src/lib/projection';
+import { buildPlannerScope, effectiveWorkItems, runScenario, scopeEpic, type Scenario } from '../src/lib/projection';
 
 const dataset = loadBundledDataset();
 const scope = scopeEpic(dataset, 'CKT');
@@ -21,6 +21,23 @@ describe('scopeEpic', () => {
     expect(scope.gating!.isGating).toBe(true);
     expect(scope.gating!.name).toMatch(/QA/);
     expect(scope.stories.length).toBeGreaterThan(0);
+  });
+});
+
+describe('buildPlannerScope', () => {
+  it('treats an empty selection as every active epic while retaining portfolio inputs', () => {
+    const scoped = buildPlannerScope(dataset, []);
+    expect(scoped.selectedEpicKeys).toEqual([]);
+    expect(scoped.visibleEpics.map((epic) => epic.key)).toEqual(scoped.activeEpics.map((epic) => epic.key));
+    expect(scoped.portfolioWorkItems).toHaveLength(dataset.workItems.length);
+    expect(scoped.portfolioPlacements).toHaveLength(dataset.placements.length);
+  });
+
+  it('limits visible detail without reducing the portfolio capacity inputs', () => {
+    const scoped = buildPlannerScope(dataset, ['CKT', 'missing']);
+    expect(scoped.selectedEpicKeys).toEqual(['CKT']);
+    expect(scoped.visibleWorkItems).toHaveLength(dataset.workItems.length);
+    expect(scoped.portfolioWorkItems).toHaveLength(dataset.workItems.length);
   });
 });
 

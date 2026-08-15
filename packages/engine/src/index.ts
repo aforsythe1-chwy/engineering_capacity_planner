@@ -32,6 +32,7 @@ export {
   remainingPoints,
 } from './project.js';
 export { projectEpicFromDataset, readEngineConfig } from './adapter.js';
+export { projectPortfolioFromDataset, type PortfolioProjection, type PortfolioEpicProjection, type PortfolioHealth } from './portfolio.js';
 export {
   type GraphEdge,
   type GraphNodeAnalysis,

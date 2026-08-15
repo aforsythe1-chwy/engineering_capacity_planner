@@ -63,10 +63,10 @@ function mapStatus(fields: JiraIssueFields): WorkItemStatus {
   }
 }
 
-function pointsOf(fields: JiraIssueFields, mapping: JiraMapping): number {
+function pointsOf(fields: JiraIssueFields, mapping: JiraMapping): { points: number; isEstimated: boolean } {
   const raw = fields[mapping.storyPointsField];
   const n = typeof raw === 'number' ? raw : Number(raw);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? { points: n, isEstimated: true } : { points: 0, isEstimated: false };
 }
 
 function labelsOf(fields: JiraIssueFields, mapping: JiraMapping): string[] {
@@ -138,24 +138,6 @@ function latestSprintId(ids: string[], sprintsById: ReadonlyMap<string, Sprint>)
   return latest?.id ?? null;
 }
 
-function currentSprintId(
-  sprints: readonly Sprint[],
-  rawStateById: ReadonlyMap<string, JiraSprint['state']>,
-  placementDate: string,
-): string | null {
-  const active = sprints.find((s) => rawStateById.get(s.id) === 'active');
-  if (active) return active.id;
-  return sprints.find((s) => s.startDate <= placementDate && placementDate <= s.endDate)?.id ?? null;
-}
-
-function shouldPlaceInCurrentSprint(fields: JiraIssueFields): boolean {
-  const name = (fields.status?.name ?? '').trim();
-  if (/^to\s*do$/i.test(name)) return false;
-  if (/^won'?t\s*do$/i.test(name)) return false;
-  if (/^wont\s*do$/i.test(name)) return false;
-  return true;
-}
-
 /** Pick a reasonably-sized avatar URL from Jira's size-keyed map, or null. */
 export function pickAvatarUrl(user: Pick<JiraUser, 'avatarUrls'> | null | undefined): string | null {
   const urls = user?.avatarUrls;
@@ -167,9 +149,9 @@ export function pickAvatarUrl(user: Pick<JiraUser, 'avatarUrls'> | null | undefi
  * Translate a bundle of raw Jira issues + sprints into a self-consistent
  * {@link DomainDataset} of *facts* (Jira owns these). Local *intent* — PTO,
  * on-call, velocity overrides, and milestones — is left empty here and
- * preserved by the reconcile step, not by the importer. Jira sprint assignments
- * become best-effort suggested Gantt placements; reconcile only applies them to
- * items the user has not already placed manually.
+ * preserved by the reconcile step, not by the importer. Explicit Jira sprint
+ * assignments become suggested Gantt placements; reconcile only applies them
+ * to items the user has not already placed manually.
  *
  * Pure and deterministic: no clock, no I/O, so it is exhaustively unit-testable.
  */
@@ -192,7 +174,6 @@ export function datasetFromJira(input: JiraDatasetInput): DomainDataset {
   domainSprints.sort((a, b) => a.startDate.localeCompare(b.startDate));
   const domainSprintById = new Map(domainSprints.map((s) => [s.id, s]));
   const rawSprintStateById = new Map(sprints.map((s) => [String(s.id), s.state]));
-  const currentSprint = currentSprintId(domainSprints, rawSprintStateById, placementDate);
 
   const team = {
     id: teamId,
@@ -247,11 +228,16 @@ export function datasetFromJira(input: JiraDatasetInput): DomainDataset {
       });
     }
 
+    const estimate = pointsOf(issue.fields, mapping);
+    const rawSprint = mapping.sprintField ? issue.fields[mapping.sprintField] : null;
+    const sprintIds = mapping.sprintField ? sprintIdsOf(rawSprint) : [];
+    const jiraSprintAssigned = mapping.sprintField ? sprintIds.length > 0 : undefined;
     workItems.push({
       key: issue.key,
       storyKey,
       title: issue.fields.summary ?? issue.key,
-      points: pointsOf(issue.fields, mapping),
+      ...estimate,
+      ...(jiraSprintAssigned === undefined ? {} : { jiraSprintAssigned }),
       status: mapStatus(issue.fields),
       assigneeId: assignee?.accountId ?? null,
       labels: labelsOf(issue.fields, mapping),
@@ -259,9 +245,7 @@ export function datasetFromJira(input: JiraDatasetInput): DomainDataset {
     workItemKeys.add(issue.key);
 
     if (mapStatus(issue.fields) !== 'Done') {
-      const rawSprint = mapping.sprintField ? issue.fields[mapping.sprintField] : null;
-      const explicitSprintId = latestSprintId(sprintIdsOf(rawSprint), domainSprintById);
-      const sprintId = explicitSprintId ?? (shouldPlaceInCurrentSprint(issue.fields) ? currentSprint : null);
+      const sprintId = latestSprintId(sprintIds, domainSprintById);
       const sprint = sprintId ? domainSprintById.get(sprintId) : null;
       if (sprint && sprintId) {
         placements.push({
@@ -270,7 +254,7 @@ export function datasetFromJira(input: JiraDatasetInput): DomainDataset {
           sprintId,
           weekIndex: weekIndexForSprint(
             sprint,
-            explicitSprintId ? sprintStateOf(rawSprint, sprintId) ?? rawSprintStateById.get(sprintId) ?? null : 'active',
+            sprintStateOf(rawSprint, sprintId) ?? rawSprintStateById.get(sprintId) ?? null,
             placementDate,
           ),
         });

@@ -20,4 +20,5 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
   green: 'On track',
   yellow: 'At risk',
   red: 'Off track',
+  'needs-estimates': 'Needs estimates',
 };

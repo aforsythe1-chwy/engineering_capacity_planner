@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DomainDataset, IsoDate, TeamMember, Weekday } from '@ecp/shared';
-import { globalStringSetting, SETTING_KEYS } from '@ecp/shared';
+import { effectivePortfolioEpic, globalStringSetting, SETTING_KEYS } from '@ecp/shared';
 import { formatDate } from '../lib/format';
 import { memberColorMap } from '../lib/memberColors';
 import { buildAvailabilityEntries, type AvailabilityEntry, type AvailabilityKind } from '../lib/availability';
@@ -12,13 +12,17 @@ import { MemberAvatar } from './MemberAvatar';
 import { JiraSetupWizard } from './JiraSetupWizard';
 import { SyncLog } from './SyncLog';
 import { DatabaseTools } from './DatabaseTools';
+import { EpicManagementSection } from './EpicManagementSection';
+import type { RuntimeDataSource } from '../data/loadDataset';
 
 interface ConfigurationProps {
   dataset: DomainDataset;
   teamId: string | null;
-  epicKey: string | null;
+  selectedEpicKeys: readonly string[];
+  onFilter: (keys: string[]) => void;
   /** True when a live backend is connected; edits are disabled otherwise. */
   editable: boolean;
+  dataSource: RuntimeDataSource;
   /** Re-fetch the dataset after a successful mutation so views recompute. */
   onReload: () => Promise<void>;
 }
@@ -64,7 +68,7 @@ function useConfigActions(onReload: () => Promise<void>) {
  * change persists via the backend API and reloads the dataset so the timeline
  * and dependency graph recompute.
  */
-export function Configuration({ dataset, teamId, epicKey, editable, onReload }: ConfigurationProps) {
+export function Configuration({ dataset, teamId, selectedEpicKeys, onFilter, editable, dataSource, onReload }: ConfigurationProps) {
   const { run, error, busy } = useConfigActions(onReload);
   const disabled = !editable || busy;
   const team = teamId ? (dataset.teams.find((t) => t.id === teamId) ?? null) : null;
@@ -85,8 +89,8 @@ export function Configuration({ dataset, teamId, epicKey, editable, onReload }: 
         </div>
       )}
 
+      <EpicManagementSection dataset={dataset} editable={editable} selectedEpicKeys={selectedEpicKeys} onFilter={onFilter} onReload={onReload} />
       <KnobsSection dataset={dataset} disabled={disabled} run={run} />
-      {epicKey ? <EpicLabelSection key={epicKey} dataset={dataset} epicKey={epicKey} disabled={disabled} run={run} /> : null}
       {team ? <CadenceSection team={team} disabled={disabled} run={run} /> : null}
       {teamId ? (
         <>
@@ -102,12 +106,12 @@ export function Configuration({ dataset, teamId, epicKey, editable, onReload }: 
           />
         </>
       ) : null}
-      {epicKey ? <MilestonesSection dataset={dataset} epicKey={epicKey} disabled={disabled} run={run} /> : null}
       <JiraSetupWizard
         dataset={dataset}
         teamId={teamId}
         members={members}
         disabled={disabled}
+        dataSource={dataSource}
         run={run}
         onReload={onReload}
       />
@@ -118,6 +122,44 @@ export function Configuration({ dataset, teamId, epicKey, editable, onReload }: 
       <DatabaseTools editable={editable} onReload={onReload} />
     </div>
   );
+}
+
+export function TrackedEpicsSection({ dataset, disabled, editable, run }: { dataset: DomainDataset; disabled: boolean; editable: boolean; run: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const projectKey = globalStringSetting(dataset.settings, SETTING_KEYS.JIRA_PROJECT_KEY) ?? undefined;
+  const boardName = globalStringSetting(dataset.settings, SETTING_KEYS.JIRA_BOARD_NAME) ?? 'configured board';
+  const [preview, setPreview] = useState<api.JiraEpicScopePreview | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    let live = true;
+    if (!editable || !projectKey) return;
+    api.previewJiraEpicScope(projectKey).then((next) => { if (live) { setPreview(next); setPreviewError(false); } }).catch(() => { if (live) setPreviewError(true); });
+    return () => { live = false; };
+  }, [editable, projectKey, dataset.portfolioEpics]);
+  const candidates = preview?.candidates ?? dataset.epics.map((epic) => {
+    const intent = effectivePortfolioEpic(dataset, epic.key);
+    return { key: epic.key, summary: epic.title, status: epic.sourceStatus ?? 'Last synced', statusCategory: epic.statusCategory ?? null, remainingItems: 0, remainingPoints: 0, unestimatedItems: 0, scopeOverride: intent.scopeOverride, planningKind: intent.planningKind, exclusion: epic.active === false ? 'archived' : null, tracked: intent.tracked };
+  });
+  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
+  const ranked = candidates.filter((candidate) => { const needle = normalize(query); return !needle || normalize(candidate.key).includes(needle) || normalize(candidate.summary).includes(needle); }).sort((a, b) => a.key.localeCompare(b.key));
+  const tracked = candidates.filter((candidate) => candidate.tracked).sort((a, b) => a.key.localeCompare(b.key));
+  const removed = candidates.filter((candidate) => candidate.scopeOverride === 'exclude').sort((a, b) => a.key.localeCompare(b.key));
+  return <section className="panel tracked-epics" aria-labelledby="tracked-epics-heading">
+    <SectionTitle title="Tracked epics" hint={`Choose the ${boardName} epics this planner should track. Tracked epics share the team's modeled capacity. Removing an epic keeps its saved settings but removes its work from this plan.`} />
+    <p className="hint">{preview ? `Live preview from board ${preview.diagnostics.boardId}.` : previewError ? 'Showing last synced epics because the live board preview is unavailable.' : 'Showing last synced epics.'}</p>
+    <label className="tracked-search"><span>Find a board epic</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search epic key or title" disabled={disabled} /></label>
+    {query && <div className="tracked-candidates" role="listbox" aria-label="Board epic candidates">{ranked.map((candidate) => <div className={`tracked-epic-row${candidate.scopeOverride === 'exclude' ? ' is-removed' : ''}`} role="option" aria-selected={candidate.tracked} key={candidate.key}><EpicSummary candidate={candidate} detail={`${candidate.status} · ${candidate.remainingItems} remaining · ${candidate.remainingPoints} pts${candidate.exclusion ? ` · ${candidate.exclusion}` : ''}`} />{candidate.tracked ? <span className="tracked-state">Tracked</span> : <button type="button" className="btn" disabled={disabled} onClick={() => run(() => api.updatePortfolioEpic(candidate.key, { scopeOverride: candidate.exclusion ? 'include' : 'auto', planningKind: candidate.planningKind }))}>{candidate.scopeOverride === 'exclude' ? 'Move back to plan' : candidate.exclusion ? 'Include anyway' : 'Add to plan'}</button>}</div>)}</div>}
+    <div className="tracked-list" aria-label="Tracked epics">{tracked.map((candidate) => <TrackedEpicRow candidate={candidate} disabled={disabled} run={run} key={candidate.key} />)}{removed.map((candidate) => <TrackedEpicRow candidate={candidate} disabled={disabled} run={run} removed key={candidate.key} />)}</div>
+  </section>;
+}
+
+function EpicSummary({ candidate, detail }: { candidate: { key: string; summary: string }; detail: string }) {
+  return <div className="tracked-epic-summary"><strong>{candidate.key} — {candidate.summary}</strong><span>{detail}</span></div>;
+}
+
+function TrackedEpicRow({ candidate, disabled, run, removed = false }: { candidate: { key: string; summary: string; status: string; remainingItems: number; unestimatedItems: number; planningKind: 'timeline' | 'ongoing'; exclusion: string | null }; disabled: boolean; run: Run; removed?: boolean }) {
+  const restore = () => api.updatePortfolioEpic(candidate.key, { scopeOverride: candidate.exclusion ? 'include' : 'auto', planningKind: candidate.planningKind });
+  return <div className={`tracked-epic-row${removed ? ' is-removed' : ''}`} key={candidate.key}><EpicSummary candidate={candidate} detail={`${candidate.status} · ${candidate.remainingItems} remaining · ${candidate.unestimatedItems} unestimated`} />{removed ? <span className="tracked-state">Removed from plan</span> : <label className="tracked-kind"><input type="checkbox" checked={candidate.planningKind === 'ongoing'} disabled={disabled} onChange={(event) => run(() => api.updatePortfolioEpic(candidate.key, { planningKind: event.target.checked ? 'ongoing' : 'timeline' }))} /><span>Ongoing</span></label>}<button type="button" className={`btn${removed ? '' : ' danger'}`} disabled={disabled} onClick={() => run(removed ? restore : () => api.updatePortfolioEpic(candidate.key, { scopeOverride: 'exclude' }))}>{removed ? 'Move back to plan' : 'Remove from plan'}</button></div>;
 }
 
 type Run = (fn: () => Promise<unknown>) => Promise<void>;
@@ -209,7 +251,7 @@ function parseLabelList(value: string): string[] {
   ];
 }
 
-function EpicLabelSection({ dataset, epicKey, disabled, run }: {
+export function EpicLabelSection({ dataset, epicKey, disabled, run }: {
   dataset: DomainDataset; epicKey: string; disabled: boolean; run: Run;
 }) {
   const [applyParentLabels, setApplyParentLabels] = useState(
@@ -461,14 +503,17 @@ function ModifiersSection({ dataset, members, colors, disabled, editable, run, o
 // ---------------------------------------------------------------------------
 // Epic milestones ("relevant days")
 // ---------------------------------------------------------------------------
-function MilestonesSection({ dataset, epicKey, disabled, run }: {
+export function MilestonesSection({ dataset, epicKey, disabled, run }: {
   dataset: DomainDataset; epicKey: string; disabled: boolean; run: Run;
 }) {
+  const [name, setName] = useState('');
+  const [date, setDate] = useState(todayIso());
+  if (effectivePortfolioEpic(dataset, epicKey).planningKind === 'ongoing') {
+    return <section className="panel"><SectionTitle title="Relevant days" hint="Ongoing epics do not use launch or gating dates. Existing relevant days are preserved and return if this epic is changed back to Timeline." /></section>;
+  }
   const milestones = dataset.milestones
     .filter((m) => m.epicKey === epicKey)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const [name, setName] = useState('');
-  const [date, setDate] = useState(todayIso());
 
   return (
     <section className="panel">

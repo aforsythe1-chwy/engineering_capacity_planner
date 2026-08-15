@@ -13,6 +13,8 @@ function sortDataset(data: ReturnType<typeof generateSyntheticDataset>) {
     pto: [...data.pto].sort(byKey((p) => p.id)),
     oncall: [...data.oncall].sort(byKey((o) => o.id)),
     epics: [...data.epics].sort(byKey((e) => e.key)),
+    portfolioEpics: [...(data.portfolioEpics ?? [])].sort(byKey((p) => p.epicKey)),
+    epicSmes: [...(data.epicSmes ?? [])].sort(byKey((s) => `${s.epicKey}:${s.rank}`)),
     milestones: [...data.milestones].sort(byKey((m) => m.id)),
     stories: [...data.stories].sort(byKey((s) => s.key)),
     workItems: [...data.workItems].sort(byKey((w) => w.key)),
@@ -36,6 +38,8 @@ describe('writeDataset / readDataset', () => {
   it('preserves boolean and null fields precisely', () => {
     const db = openDatabase();
     const original = generateSyntheticDataset({ seed: 8 });
+    original.workItems[0]!.jiraSprintAssigned = false;
+    original.workItems[1]!.jiraSprintAssigned = true;
     writeDataset(db, original);
     const readBack = readDataset(db);
     db.close();
@@ -54,6 +58,8 @@ describe('writeDataset / readDataset', () => {
     for (const key of unassigned) {
       expect(readBack.workItems.find((w) => w.key === key)!.assigneeId).toBeNull();
     }
+    expect(readBack.workItems[0]!.jiraSprintAssigned).toBe(false);
+    expect(readBack.workItems[1]!.jiraSprintAssigned).toBe(true);
   });
 
   it('is idempotent: re-writing replaces rather than duplicating', () => {

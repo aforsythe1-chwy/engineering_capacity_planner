@@ -161,6 +161,24 @@ export class HttpJiraClient implements JiraClient {
     }
   }
 
+  async listBoardIssues(boardId: number, fields: string[]): Promise<JiraIssue[]> {
+    const issues: JiraIssue[] = [];
+    let startAt = 0;
+    const maxResults = 100;
+    for (;;) {
+      const page = await this.request<{ issues: JiraIssue[]; total?: number; maxResults?: number }>(
+        'GET', `/rest/agile/1.0/board/${boardId}/issue`, undefined,
+        { startAt, maxResults, fields: fields.join(',') },
+      );
+      const values = page.issues ?? [];
+      issues.push(...values);
+      if (values.length === 0) return issues;
+      startAt += page.maxResults ?? maxResults;
+      if (page.total !== undefined && startAt >= page.total) return issues;
+      if (values.length < maxResults) return issues;
+    }
+  }
+
   createIssue(input: JiraCreateIssueInput): Promise<JiraCreatedIssue> {
     return this.request<JiraCreatedIssue>('POST', '/rest/api/3/issue', input);
   }

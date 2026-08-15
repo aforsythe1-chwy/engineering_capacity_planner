@@ -35,7 +35,14 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
      VALUES (@id, @memberId, @startDate, @endDate, @note)`,
   );
   const insertEpic = db.prepare(
-    `INSERT INTO epic (key, title, team_id) VALUES (@key, @title, @teamId)`,
+    `INSERT INTO epic (key, title, team_id, active, source_status, status_category, archived_at, last_seen_at)
+     VALUES (@key, @title, @teamId, @active, @sourceStatus, @statusCategory, @archivedAt, @lastSeenAt)`,
+  );
+  const insertPortfolioEpic = db.prepare(
+    `INSERT INTO portfolio_epic (epic_key, scope_override, planning_kind, priority) VALUES (@epicKey, @scopeOverride, @planningKind, @priority)`,
+  );
+  const insertEpicSme = db.prepare(
+    'INSERT INTO epic_sme (epic_key, member_id, rank) VALUES (@epicKey, @memberId, @rank)',
   );
   const insertMilestone = db.prepare(
     `INSERT INTO epic_milestone (id, epic_key, name, date, is_gating)
@@ -50,8 +57,8 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
      VALUES (@id, @teamId, @name, @startDate, @endDate)`,
   );
   const insertWorkItem = db.prepare(
-    `INSERT INTO work_item (key, story_key, title, points, status, assignee_id, labels)
-     VALUES (@key, @storyKey, @title, @points, @status, @assigneeId, @labels)`,
+    `INSERT INTO work_item (key, story_key, title, points, is_estimated, jira_sprint_assigned, status, assignee_id, labels)
+     VALUES (@key, @storyKey, @title, @points, @isEstimated, @jiraSprintAssigned, @status, @assigneeId, @labels)`,
   );
   const insertDependency = db.prepare(
     `INSERT INTO dependency (id, blocker_item_key, blocked_item_key)
@@ -84,11 +91,22 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
     for (const p of data.pto) insertPto.run({ ...p, note: p.note ?? null });
     for (const o of data.oncall) insertOncall.run({ ...o, note: o.note ?? null });
     for (const sp of data.sprints) insertSprint.run(sp);
-    for (const e of data.epics) insertEpic.run(e);
+    for (const e of data.epics) insertEpic.run({
+      ...e, active: bool(e.active ?? true), sourceStatus: e.sourceStatus ?? null,
+      statusCategory: e.statusCategory ?? null, archivedAt: e.archivedAt ?? null, lastSeenAt: e.lastSeenAt ?? null,
+    });
+    for (const p of data.portfolioEpics ?? []) insertPortfolioEpic.run({ ...p, planningKind: p.planningKind ?? 'timeline' });
+    for (const sme of data.epicSmes ?? []) insertEpicSme.run(sme);
     for (const ms of data.milestones) insertMilestone.run({ ...ms, isGating: bool(ms.isGating) });
     for (const s of data.stories) insertStory.run({ ...s, labels: JSON.stringify(s.labels ?? []) });
     for (const w of data.workItems) {
-      insertWorkItem.run({ ...w, labels: JSON.stringify(w.labels ?? []) });
+      insertWorkItem.run({
+        ...w,
+        isEstimated: bool(w.isEstimated ?? true),
+        jiraSprintAssigned:
+          w.jiraSprintAssigned === undefined ? null : bool(w.jiraSprintAssigned),
+        labels: JSON.stringify(w.labels ?? []),
+      });
     }
     for (const d of data.dependencies) insertDependency.run(d);
     for (const p of data.placements) insertPlacement.run(p);
@@ -160,7 +178,18 @@ export function readDataset(db: Db): DomainDataset {
     epics: db
       .prepare('SELECT * FROM epic')
       .all()
-      .map((r: any) => ({ key: r.key, title: r.title, teamId: r.team_id })),
+      .map((r: any) => ({ key: r.key, title: r.title, teamId: r.team_id,
+        ...(r.active === 1 ? {} : { active: false }),
+        ...(r.source_status == null ? {} : { sourceStatus: r.source_status }),
+        ...(r.status_category == null ? {} : { statusCategory: r.status_category }),
+        ...(r.archived_at == null ? {} : { archivedAt: r.archived_at }),
+        ...(r.last_seen_at == null ? {} : { lastSeenAt: r.last_seen_at }), })),
+    portfolioEpics: db.prepare('SELECT * FROM portfolio_epic').all().map((r: any) => ({
+      epicKey: r.epic_key, scopeOverride: r.scope_override, planningKind: r.planning_kind ?? 'timeline', priority: r.priority,
+    })),
+    epicSmes: db.prepare('SELECT * FROM epic_sme ORDER BY epic_key ASC, rank ASC').all().map((r: any) => ({
+      epicKey: r.epic_key, memberId: r.member_id, rank: r.rank,
+    })),
     milestones: db
       .prepare('SELECT * FROM epic_milestone')
       .all()
@@ -188,6 +217,10 @@ export function readDataset(db: Db): DomainDataset {
         storyKey: r.story_key,
         title: r.title,
         points: r.points,
+        ...(r.is_estimated === 0 ? { isEstimated: false } : {}),
+        ...(r.jira_sprint_assigned === null || r.jira_sprint_assigned === undefined
+          ? {}
+          : { jiraSprintAssigned: r.jira_sprint_assigned === 1 }),
         status: r.status,
         assigneeId: r.assignee_id,
         labels: r.labels ? JSON.parse(r.labels) : [],

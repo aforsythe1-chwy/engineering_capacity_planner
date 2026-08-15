@@ -66,7 +66,9 @@ export interface SyncChange {
     | 'placement-dropped'
     | 'member-added'
     | 'sprint-added'
-    | 'sprint-removed';
+    | 'sprint-removed'
+    | 'epic-archived'
+    | 'epic-reactivated';
   entity: string;
   detail: string;
 }

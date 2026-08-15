@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DomainDataset } from '@ecp/shared';
 import { parseJiraTicketKey, SETTING_KEYS } from '@ecp/shared';
 import * as api from '../data/api';
@@ -31,6 +31,8 @@ interface TicketFieldModalProps {
   run: (fn: () => Promise<unknown>) => Promise<void>;
   /** Prefill the lookup box (e.g. the epic key already chosen). */
   initialRef?: string;
+  /** Immediately inspect a ticket selected from the board-scoped recent list. */
+  autoLoad?: boolean;
   onClose: () => void;
 }
 
@@ -42,7 +44,7 @@ interface TicketFieldModalProps {
  * issue-link type (not a custom field), so we auto-confirm it and say so rather
  * than making the user hunt for a field that doesn't exist.
  */
-export function TicketFieldModal({ dataset, disabled, run, initialRef, onClose }: TicketFieldModalProps) {
+export function TicketFieldModal({ dataset, disabled, run, initialRef, autoLoad = false, onClose }: TicketFieldModalProps) {
   const [refText, setRefText] = useState(initialRef ?? '');
   const [fieldFilter, setFieldFilter] = useState('');
   const [ticket, setTicket] = useState<api.JiraTicketResponse | null>(null);
@@ -73,6 +75,13 @@ export function TicketFieldModal({ dataset, disabled, run, initialRef, onClose }
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (autoLoad && initialRef) void lookup();
+    // A selected ticket is immutable for a mounted modal; deliberately do not
+    // re-run this request after mapping settings update the parent dataset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Story-point candidates: numeric custom fields on this ticket, then any other
   // custom field (so a field that happened to be blank here is still mappable).

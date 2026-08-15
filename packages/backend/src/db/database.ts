@@ -48,6 +48,19 @@ function migrate(db: Db): void {
   // remember their Jira avatar image.
   ensureColumn(db, 'team_member', 'jira_account_id', 'TEXT');
   ensureColumn(db, 'team_member', 'avatar_url', 'TEXT');
+  ensureColumn(db, 'epic', 'active', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'epic', 'source_status', 'TEXT');
+  ensureColumn(db, 'epic', 'status_category', 'TEXT');
+  ensureColumn(db, 'epic', 'archived_at', 'TEXT');
+  ensureColumn(db, 'epic', 'last_seen_at', 'TEXT');
+  ensureColumn(db, 'work_item', 'is_estimated', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'work_item', 'jira_sprint_assigned', 'INTEGER');
+  // Older SQLite tables cannot gain this CHECK constraint additively. The
+  // repository validates values as well; fresh databases retain the check.
+  ensureColumn(db, 'portfolio_epic', 'planning_kind', "TEXT NOT NULL DEFAULT 'timeline'");
+  // This index references a column introduced above, so it must be created
+  // after additive migrations when opening databases from older releases.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_epic_active ON epic(active)');
 }
 
 /** Add `column` to `table` if it's not already present. */

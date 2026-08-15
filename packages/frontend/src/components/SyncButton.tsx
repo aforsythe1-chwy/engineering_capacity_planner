@@ -3,6 +3,7 @@ import type { DomainDataset } from '@ecp/shared';
 import { globalStringSetting, isMappingComplete, SETTING_KEYS } from '@ecp/shared';
 import type { DatasetSource } from '../data/loadDataset';
 import * as api from '../data/api';
+import type { RuntimeDataSource } from '../data/loadDataset';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -43,6 +44,7 @@ function missingJiraSetup(settings: DomainDataset['settings']): string[] {
 interface SyncButtonProps {
   dataset: DomainDataset;
   source: DatasetSource;
+  dataSource: RuntimeDataSource;
   onReload: () => Promise<void>;
   /** Send the user to the Jira setup flow (Configuration tab). */
   onGoToSetup: () => void;
@@ -53,7 +55,7 @@ interface SyncButtonProps {
  * last successful sync; it's locked until Jira setup is complete, in which case
  * clicking it explains where to finish setup instead of silently doing nothing.
  */
-export function SyncButton({ dataset, source, onReload, onGoToSetup }: SyncButtonProps) {
+export function SyncButton({ dataset, source, dataSource, onReload, onGoToSetup }: SyncButtonProps) {
   // A once-a-minute tick so the color ages even with no user action.
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   useEffect(() => {
@@ -67,7 +69,7 @@ export function SyncButton({ dataset, source, onReload, onGoToSetup }: SyncButto
 
   // Locked until the mapping is complete against a live backend (bundled sample
   // data has no backend to sync to).
-  const configured = source === 'api' && isMappingComplete(dataset.settings);
+  const configured = source === 'api' && dataSource === 'jira' && isMappingComplete(dataset.settings);
   const missingSetup = source === 'api' ? missingJiraSetup(dataset.settings) : [];
 
   const lastIso = globalStringSetting(dataset.settings, SETTING_KEYS.LAST_SYNCED_AT);
@@ -101,7 +103,9 @@ export function SyncButton({ dataset, source, onReload, onGoToSetup }: SyncButto
   const stateClass = configured ? freshness : 'locked';
   const title = configured
     ? `Last synced ${age} — click to sync now`
-    : 'Jira setup incomplete — click for help';
+    : dataSource !== 'jira'
+      ? 'Backend is not in Jira mode — click for setup instructions'
+      : 'Jira setup incomplete — click for help';
 
   return (
     <div className="sync-control">
@@ -131,6 +135,8 @@ export function SyncButton({ dataset, source, onReload, onGoToSetup }: SyncButto
             <p>
               {source !== 'api'
                 ? 'You’re viewing bundled sample data. Start the backend and connect a Jira board to enable syncing.'
+                : dataSource !== 'jira'
+                  ? 'The backend is currently using synthetic data. Set ECP_DATA_SOURCE=jira and restart the backend before syncing.'
                 : `Sync is locked until you’ve connected a board and mapped the required fields. Missing: ${missingSetup.join(', ') || 'unknown'}.`}
             </p>
             <div className="modal-actions">

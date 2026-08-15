@@ -43,7 +43,8 @@ function parseArgs(argv: string[]) {
 
 const FAKE_MAPPING: JiraMapping = {
   projectKey: 'CKT',
-  epicKey: null,
+      epicKey: null,
+      epicScopeMode: 'active',
   boardId: 1,
   storyPointsField: 'customfield_10016',
   sprintField: 'customfield_10020',

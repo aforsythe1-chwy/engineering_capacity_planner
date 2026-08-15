@@ -35,6 +35,8 @@ export const SETTING_KEYS = {
   JIRA_BLOCKS_LINK_TYPE: 'jira_blocks_link_type',
   /** The specific epic key to import work from (e.g. `"CKT"`). */
   JIRA_EPIC_KEY: 'jira_epic_key',
+  /** `single` retains legacy behavior; new board setups use `active`. */
+  JIRA_EPIC_SCOPE_MODE: 'jira_epic_scope_mode',
   /** Agile board id used to read sprints; blank = auto-discover the project's board. */
   JIRA_BOARD_ID: 'jira_board_id',
   /** Human-readable name of the selected board, for display in the setup wizard. */
@@ -93,6 +95,7 @@ export function defaultGlobalSettings(): Setting[] {
     global(SETTING_KEYS.JIRA_PROJECT_KEY, null),
     global(SETTING_KEYS.JIRA_BLOCKS_LINK_TYPE, null),
     global(SETTING_KEYS.JIRA_EPIC_KEY, null),
+    global(SETTING_KEYS.JIRA_EPIC_SCOPE_MODE, 'active'),
     global(SETTING_KEYS.JIRA_BOARD_ID, null),
     global(SETTING_KEYS.JIRA_BOARD_NAME, null),
     global(SETTING_KEYS.JIRA_SPRINT_FIELD, null),

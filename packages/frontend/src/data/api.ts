@@ -1,4 +1,5 @@
 import type {
+  EpicSme,
   EpicMilestone,
   Oncall,
   PlannedPlacement,
@@ -42,6 +43,10 @@ export const patchSettings = (patch: Record<string, unknown>): Promise<unknown> 
 
 export const patchEpicSettings = (epicKey: string, patch: Record<string, unknown>): Promise<unknown> =>
   request('PATCH', `/api/epics/${encodeURIComponent(epicKey)}/settings`, patch);
+
+/** Replace the complete owner-first SME order for an epic. */
+export const replaceEpicSmes = (epicKey: string, memberIds: string[]): Promise<EpicSme[]> =>
+  request('PUT', `/api/portfolio/epics/${encodeURIComponent(epicKey)}/smes`, { memberIds });
 
 // --- Local DB snapshot + import --------------------------------------------
 export interface SnapshotResponse {
@@ -162,11 +167,61 @@ export interface JiraEpicOption {
   key: string;
   summary: string;
 }
+export interface JiraRecentTicket {
+  key: string;
+  summary: string;
+  status: string;
+  issueType: string;
+  updated: string | null;
+}
+export interface JiraEpicScopePreview {
+  projectKey: string;
+  epics: Array<{
+    key: string;
+    summary: string;
+    status: string;
+    remainingItems: number;
+    remainingPoints: number;
+    unestimatedItems: number;
+    scopeOverride: 'auto' | 'include' | 'exclude';
+    planningKind: 'timeline' | 'ongoing';
+  }>;
+  candidates: Array<{
+    key: string;
+    summary: string;
+    status: string;
+    statusCategory: string | null;
+    remainingItems: number;
+    remainingPoints: number;
+    unestimatedItems: number;
+    scopeOverride: 'auto' | 'include' | 'exclude';
+    planningKind: 'timeline' | 'ongoing';
+    exclusion: string | null;
+    tracked: boolean;
+  }>;
+  archived: Array<{ key: string; summary: string }>;
+  diagnostics: {
+    boardId: number;
+    boardIssueCount: number;
+    rootSelection: 'jira-epic' | 'referenced-jira-epic' | 'parentless-board-root';
+    referencedJiraEpicCount: number;
+    jiraEpicCount: number;
+    rootCandidateCount: number;
+    issueTypes: Record<string, number>;
+    rootIssueTypes: Record<string, number>;
+    exclusionCounts: Record<string, number>;
+  };
+}
 export interface JiraUserOption {
   accountId: string;
   displayName: string;
   email: string | null;
   avatarUrl: string | null;
+}
+export interface JiraCurrentSprintAssignees {
+  currentSprint: { id: number; name: string } | null;
+  users: Array<{ accountId: string; displayName: string; avatarUrl: string | null; ticketCount: number }>;
+  reason: string | null;
 }
 
 const qs = (params: Record<string, string | undefined>): string => {
@@ -189,8 +244,28 @@ export const searchJiraEpics = (params: { project?: string; q?: string } = {}): 
   epics: JiraEpicOption[];
 }> => request('GET', `/api/jira/epics${qs({ project: params.project, q: params.q })}`);
 
+export const getRecentJiraTickets = (project?: string): Promise<{ projectKey: string; tickets: JiraRecentTicket[] }> =>
+  request('GET', `/api/jira/recent-tickets${qs({ project })}`);
+
+export const previewJiraEpicScope = (project?: string): Promise<JiraEpicScopePreview> =>
+  request('GET', `/api/jira/epic-scope/preview${qs({ project })}`);
+
+export const updatePortfolioEpic = (epicKey: string, patch: {
+  scopeOverride?: 'auto' | 'include' | 'exclude';
+  planningKind?: 'timeline' | 'ongoing';
+  priority?: number;
+}): Promise<{ epicKey: string; scopeOverride: 'auto' | 'include' | 'exclude'; planningKind: 'timeline' | 'ongoing'; priority: number }> =>
+  request('PUT', `/api/portfolio/epics/${encodeURIComponent(epicKey)}`, patch);
+
+export interface JiraCacheEvent { at: string; operation: string; outcome: 'network' | 'cache-hit' | 'coalesced' | 'error'; durationMs?: number }
+export const getJiraCacheEvents = (): Promise<{ enabled: boolean; events: JiraCacheEvent[] }> => request('GET', '/api/jira/cache/events');
+export const refreshJiraCache = (): Promise<{ cleared: boolean }> => request('POST', '/api/jira/cache/refresh');
+
 export const searchJiraUsers = (q?: string): Promise<{ users: JiraUserOption[] }> =>
   request('GET', `/api/jira/users${qs({ q })}`);
+
+export const getCurrentSprintAssignees = (): Promise<JiraCurrentSprintAssignees> =>
+  request('GET', '/api/jira/current-sprint-assignees');
 
 // --- Team cadence ----------------------------------------------------------
 export const updateTeam = (id: string, patch: Partial<Omit<Team, 'id'>>): Promise<Team> =>

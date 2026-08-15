@@ -1,10 +1,50 @@
-import type { IsoDate, Sprint, TeamMember, UserStory, WorkItem } from '@ecp/shared';
+import type {
+  IsoDate,
+  Oncall,
+  PlannedPlacement,
+  Pto,
+  Sprint,
+  Team,
+  TeamMember,
+  UserStory,
+  VelocityOverride,
+  WorkItem,
+} from '@ecp/shared';
 import { addDays } from '@ecp/shared';
 import { buildCapacityContext, weeklyPlan, type WeekPlan } from '@ecp/engine';
-import type { EpicScope } from './projection';
+
+export interface GanttLabelConfig {
+  applyParentLabels: boolean;
+  ignoreLabels: string[];
+}
 
 /**
- * View-model for the Gantt Planner tab (project plan §6a). Given an epic scope
+ * Gantt inputs keep presentation scope separate from the portfolio-wide load.
+ * Filtering changes only the visible collections; capacity is always derived
+ * from the complete active portfolio collections.
+ */
+export interface GanttScope {
+  visibleStories: UserStory[];
+  visibleWorkItems: WorkItem[];
+  visiblePlacements: PlannedPlacement[];
+  portfolioWorkItems: WorkItem[];
+  portfolioPlacements: PlannedPlacement[];
+  labelConfigByEpicKey: ReadonlyMap<string, GanttLabelConfig>;
+  team: Team;
+  members: TeamMember[];
+  pto: Pto[];
+  oncall: Oncall[];
+  velocityOverrides: VelocityOverride[];
+  sprints: Sprint[];
+  defaults: {
+    oncallMultiplier: number;
+    weekYellowLoadFraction: number;
+  };
+  planningToday: IsoDate | null;
+}
+
+/**
+ * View-model for the Gantt Planner tab (project plan §6a). Given a Gantt scope
  * and a selected sprint, it derives the week columns (capacity + placed load +
  * verdict), the horizontal label lanes, the placed chips per `(lane × week)`
  * cell, the per-member weekly-capacity breakdown, and the unplaced backlog
@@ -38,7 +78,7 @@ const isDone = (w: WorkItem): boolean => w.status === 'Done';
 /** A horizontal lane: an epic subdivision sourced from a label. */
 export interface GanttLane {
   label: string;
-  /** Total points of the subdivision across the whole epic. */
+  /** Total points of the subdivision across the visible work. */
   totalPoints: number;
 }
 
@@ -49,7 +89,7 @@ export interface GanttCell {
   points: number;
 }
 
-/** One member's weekly-capacity breakdown for the selected sprint. */
+/** One member's weekly-capacity breakdown for the displayed Gantt horizon. */
 export interface MemberWeekCapacity {
   member: TeamMember;
   /** Capacity per week index, in points. */
@@ -61,7 +101,9 @@ export interface MemberWeekCapacity {
 
 export interface GanttView {
   sprint: Sprint | null;
-  weeks: WeekPlan[];
+  /** Consecutive sprints represented in the displayed horizon. */
+  sprintGroups: Array<{ sprint: Sprint; startWeekIndex: number; weekCount: number }>;
+  weeks: GanttWeek[];
   lanes: GanttLane[];
   /** Cell lookup, keyed by `${laneLabel}::${weekIndex}`. */
   cells: Map<string, GanttCell>;
@@ -69,6 +111,13 @@ export interface GanttView {
   /** Unplaced, not-done items — the backlog "bag". */
   bag: WorkItem[];
   placedCount: number;
+}
+
+/** A displayed week, identified by both its global column and sprint-local week. */
+export interface GanttWeek extends WeekPlan {
+  sprintId: string;
+  sprintName: string;
+  sprintWeekIndex: number;
 }
 
 const cellKey = (label: string, weekIndex: number): string => `${label}::${weekIndex}`;
@@ -79,15 +128,28 @@ export function ganttSprintEnd(sprint: Sprint, sprintLengthDays: number): IsoDat
   return cadenceEnd < sprint.endDate ? cadenceEnd : sprint.endDate;
 }
 
-/** Build the Gantt view for one sprint. */
-export function buildGanttView(scope: EpicScope, sprintId: string | null): GanttView {
+/** Build the Gantt view from the selected sprint across a configurable horizon. */
+export function buildGanttView(
+  scope: GanttScope,
+  sprintId: string | null,
+  displayedWeekCount = 4,
+): GanttView {
   const sprint = scope.sprints.find((s) => s.id === sprintId) ?? scope.sprints[0] ?? null;
+  const sprintStartIndex = sprint ? scope.sprints.findIndex((entry) => entry.id === sprint.id) : -1;
 
-  const byKey = new Map(scope.workItems.map((w) => [w.key, w]));
-  const storyByKey = new Map(scope.stories.map((s) => [s.key, s]));
-  const ignoredLabels = new Set(scope.labelConfig.ignoreLabels);
-  const laneLabel = (w: WorkItem): string =>
-    primaryLabel(w, storyByKey.get(w.storyKey), scope.labelConfig.applyParentLabels, ignoredLabels);
+  const visibleByKey = new Map(scope.visibleWorkItems.map((w) => [w.key, w]));
+  const portfolioByKey = new Map(scope.portfolioWorkItems.map((w) => [w.key, w]));
+  const storyByKey = new Map(scope.visibleStories.map((s) => [s.key, s]));
+  const laneLabel = (w: WorkItem): string => {
+    const story = storyByKey.get(w.storyKey);
+    const config = story ? scope.labelConfigByEpicKey.get(story.epicKey) : undefined;
+    return primaryLabel(
+      w,
+      story,
+      config?.applyParentLabels ?? false,
+      new Set(config?.ignoreLabels ?? []),
+    );
+  };
   const ctx = buildCapacityContext({
     members: scope.members,
     pto: scope.pto,
@@ -96,41 +158,60 @@ export function buildGanttView(scope: EpicScope, sprintId: string | null): Gantt
     oncallMultiplier: scope.defaults.oncallMultiplier,
   });
 
-  // Placements in the selected sprint, indexed into cells and weekly loads.
-  const placementsHere = sprint
-    ? scope.placements.filter((p) => p.sprintId === sprint.id)
-    : [];
   const cells = new Map<string, GanttCell>();
-  const placedPointsByWeek = new Map<number, number>();
   const placedKeys = new Set<string>();
-  for (const p of placementsHere) {
-    const item = byKey.get(p.workItemKey);
-    if (!item) continue;
-    placedKeys.add(item.key);
-    const key = cellKey(laneLabel(item), p.weekIndex);
-    const cell = cells.get(key) ?? { items: [], points: 0 };
-    cell.items.push(item);
-    if (!isDone(item)) {
-      cell.points += item.points;
+  const sprintGroups: GanttView['sprintGroups'] = [];
+  const weeks: GanttWeek[] = [];
+  let remainingWeeks = Math.max(1, Math.floor(displayedWeekCount));
+
+  // Visible placements produce cells. Portfolio placements independently
+  // produce shared weekly loads, including work hidden by an epic filter.
+  for (const candidate of sprintStartIndex < 0 ? [] : scope.sprints.slice(sprintStartIndex)) {
+    if (remainingWeeks <= 0) break;
+    const visiblePlacementsHere = scope.visiblePlacements.filter((p) => p.sprintId === candidate.id);
+    const portfolioPlacementsHere = scope.portfolioPlacements.filter((p) => p.sprintId === candidate.id);
+    const placedPointsByWeek = new Map<number, number>();
+    for (const p of portfolioPlacementsHere) {
+      const item = portfolioByKey.get(p.workItemKey);
+      if (!item || isDone(item)) continue;
       placedPointsByWeek.set(p.weekIndex, (placedPointsByWeek.get(p.weekIndex) ?? 0) + item.points);
     }
-    cells.set(key, cell);
+    const sprintWeeks = weeklyPlan({
+      startDate: candidate.startDate,
+      endDate: ganttSprintEnd(candidate, scope.team.sprintLengthDays),
+      workingDays: scope.team.workingDays,
+      capacityCtx: ctx,
+      placedPointsByWeek,
+      yellowLoadFraction: scope.defaults.weekYellowLoadFraction,
+    }).slice(0, remainingWeeks);
+    if (sprintWeeks.length === 0) continue;
+
+    const startWeekIndex = weeks.length;
+    sprintGroups.push({ sprint: candidate, startWeekIndex, weekCount: sprintWeeks.length });
+    for (const p of visiblePlacementsHere) {
+      if (p.weekIndex < 0 || p.weekIndex >= sprintWeeks.length) continue;
+      const item = visibleByKey.get(p.workItemKey);
+      if (!item) continue;
+      placedKeys.add(item.key);
+      const key = cellKey(laneLabel(item), startWeekIndex + p.weekIndex);
+      const cell = cells.get(key) ?? { items: [], points: 0 };
+      cell.items.push(item);
+      if (!isDone(item)) cell.points += item.points;
+      cells.set(key, cell);
+    }
+    weeks.push(...sprintWeeks.map((week, sprintWeekIndex) => ({
+      ...week,
+      index: startWeekIndex + sprintWeekIndex,
+      sprintId: candidate.id,
+      sprintName: candidate.name,
+      sprintWeekIndex,
+    })));
+    remainingWeeks -= sprintWeeks.length;
   }
 
-  const weeks = sprint
-    ? weeklyPlan({
-        startDate: sprint.startDate,
-        endDate: ganttSprintEnd(sprint, scope.team.sprintLengthDays),
-        workingDays: scope.team.workingDays,
-        capacityCtx: ctx,
-        placedPointsByWeek,
-        yellowLoadFraction: scope.defaults.weekYellowLoadFraction,
-      })
-    : [];
-
-  // Lanes: distinct labels across the epic, biggest subdivision first.
+  // Lanes: distinct labels across visible work, biggest subdivision first.
   const totals = new Map<string, number>();
-  for (const w of scope.workItems) {
+  for (const w of scope.visibleWorkItems) {
     const label = laneLabel(w);
     totals.set(label, (totals.get(label) ?? 0) + w.points);
   }
@@ -138,17 +219,17 @@ export function buildGanttView(scope: EpicScope, sprintId: string | null): Gantt
     .map(([label, totalPoints]) => ({ label, totalPoints }))
     .sort((a, b) => b.totalPoints - a.totalPoints || a.label.localeCompare(b.label));
 
-  const members = sprint
+  const members = sprintGroups.length
     ? scope.members
         .filter((m) => m.active)
-        .map((m) => memberWeekCapacity(m, sprint, scope))
+        .map((m) => memberWeekCapacity(m, sprintGroups, scope))
     : [];
 
   // The bag: unplaced (in any sprint), not-done work.
-  const allPlaced = new Set(scope.placements.map((p) => p.workItemKey));
-  const bag = scope.workItems.filter((w) => !allPlaced.has(w.key) && !isDone(w));
+  const allVisiblePlaced = new Set(scope.visiblePlacements.map((p) => p.workItemKey));
+  const bag = scope.visibleWorkItems.filter((w) => !allVisiblePlaced.has(w.key) && !isDone(w));
 
-  return { sprint, weeks, lanes, cells, members, bag, placedCount: placedKeys.size };
+  return { sprint, sprintGroups, weeks, lanes, cells, members, bag, placedCount: placedKeys.size };
 }
 
 /** Look up a cell (may be empty). */
@@ -163,10 +244,9 @@ export function ganttCell(
 /** Per-week capacity for a single member, plus availability call-outs. */
 function memberWeekCapacity(
   member: TeamMember,
-  sprint: Sprint,
-  scope: EpicScope,
+  sprintGroups: GanttView['sprintGroups'],
+  scope: GanttScope,
 ): MemberWeekCapacity {
-  const sprintEnd = ganttSprintEnd(sprint, scope.team.sprintLengthDays);
   const soloCtx = buildCapacityContext({
     members: [member],
     pto: scope.pto.filter((p) => p.memberId === member.id),
@@ -174,19 +254,20 @@ function memberWeekCapacity(
     velocityOverrides: scope.velocityOverrides.filter((v) => v.memberId === member.id),
     oncallMultiplier: scope.defaults.oncallMultiplier,
   });
-  const weeks = weeklyPlan({
+  const perWeek = sprintGroups.flatMap(({ sprint }) => weeklyPlan({
     startDate: sprint.startDate,
-    endDate: sprintEnd,
+    endDate: ganttSprintEnd(sprint, scope.team.sprintLengthDays),
     workingDays: scope.team.workingDays,
     capacityCtx: soloCtx,
     placedPointsByWeek: new Map(),
     yellowLoadFraction: scope.defaults.weekYellowLoadFraction,
-  });
-  const perWeek = weeks.map((w) => w.capacity);
+  }).map((week) => week.capacity));
   const total = Math.round(perWeek.reduce((a, b) => a + b, 0) * 100) / 100;
 
   const overlaps = (start: IsoDate, end: IsoDate): boolean =>
-    start <= sprintEnd && end >= sprint.startDate;
+    sprintGroups.some(({ sprint }) =>
+      start <= ganttSprintEnd(sprint, scope.team.sprintLengthDays) && end >= sprint.startDate,
+    );
   const notes: string[] = [];
   for (const p of scope.pto) {
     if (p.memberId === member.id && overlaps(p.startDate, p.endDate)) {

@@ -23,6 +23,8 @@ export interface ReconcileSummary {
   placementsAddedFromJira: number;
   /** Jira sprint assignments that disagree with preserved local placements. */
   placementConflicts: number;
+  epicsArchived: number;
+  epicsReactivated: number;
 }
 
 export interface ReconcileResult {
@@ -154,6 +156,9 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
   //     fill unplaced work from Jira sprint assignments when available.
   const incomingItems = new Map(remappedWorkItems.map((w) => [w.key, w]));
   const incomingSprintIds = new Set(incoming.sprints.map((s) => s.id));
+  const incomingJiraPlacementKeys = new Set(incoming.placements.map((p) => p.workItemKey));
+  const isJiraSuggestedPlacement = (placement: PlannedPlacement): boolean =>
+    placement.id.startsWith('jira-') && placement.id.endsWith('-sprint');
   const keptPlacements: PlannedPlacement[] = [];
   let placementsPulledDone = 0;
   let placementsDroppedMissingItem = 0;
@@ -169,6 +174,16 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
     } else if (!incomingSprintIds.has(p.sprintId)) {
       placementsDroppedMissingSprint += 1;
       changes.push({ category: 'placement-dropped', entity: p.workItemKey, detail: 'Removed from the plan — its sprint no longer exists' });
+    } else if (isJiraSuggestedPlacement(p)) {
+      if (!incomingJiraPlacementKeys.has(p.workItemKey)) {
+        changes.push({
+          category: 'placement-dropped',
+          entity: p.workItemKey,
+          detail: 'Removed from the plan — Jira no longer assigns a sprint',
+        });
+      }
+      // Jira-generated suggestions are replaced by the fresh incoming facts
+      // below. Human-authored placements keep their existing precedence.
     } else {
       keptPlacements.push(p);
     }
@@ -207,7 +222,26 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
   }
 
   // --- Local intent kept as-is (with FK safety filters).
-  const epicKeys = new Set(incoming.epics.map((e) => e.key));
+  const incomingEpicKeys = new Set(incoming.epics.map((e) => e.key));
+  let epicsArchived = 0;
+  let epicsReactivated = 0;
+  const now = new Date().toISOString();
+  const refreshedEpics = incoming.epics.map((epic) => {
+    const was = current.epics.find((e) => e.key === epic.key);
+    if (was?.active === false) { epicsReactivated += 1; changes.push({ category: 'epic-reactivated', entity: epic.key, detail: 'Epic is active in the board scope again' }); return { ...epic, active: true, archivedAt: null, lastSeenAt: now }; }
+    return epic;
+  });
+  const archivedEpics = current.epics.filter((e) => !incomingEpicKeys.has(e.key)).map((e) => {
+    if (e.active !== false) { epicsArchived += 1; changes.push({ category: 'epic-archived', entity: e.key, detail: 'Epic left the active board scope; local planning history retained' }); }
+    return { ...e, active: false, archivedAt: e.archivedAt ?? now };
+  });
+  const allEpics = [...refreshedEpics, ...archivedEpics];
+  const epicKeys = new Set(allEpics.map((e) => e.key));
+  const archivedStoryKeys = new Set(current.stories.filter((s) => archivedEpics.some((e) => e.key === s.epicKey)).map((s) => s.key));
+  const allStories = [...incoming.stories, ...current.stories.filter((s) => archivedStoryKeys.has(s.key))];
+  const allWorkItems = [...remappedWorkItems, ...current.workItems.filter((w) => archivedStoryKeys.has(w.storyKey))];
+  const allItemKeys = new Set(allWorkItems.map((w) => w.key));
+  const allDependencies = [...incoming.dependencies, ...current.dependencies.filter((d) => allItemKeys.has(d.blockerItemKey) && allItemKeys.has(d.blockedItemKey) && !incoming.dependencies.some((x) => x.id === d.id))];
   const milestones = current.milestones.filter((m) => epicKeys.has(m.epicKey));
   const pto = current.pto.filter((p) => memberIds.has(p.memberId));
   const oncall = current.oncall.filter((o) => memberIds.has(o.memberId));
@@ -228,11 +262,13 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
     velocityOverrides,
     pto,
     oncall,
-    epics: incoming.epics,
+    epics: allEpics,
+    portfolioEpics: current.portfolioEpics,
+    epicSmes: (current.epicSmes ?? []).filter((sme) => epicKeys.has(sme.epicKey) && memberIds.has(sme.memberId)),
     milestones,
-    stories: incoming.stories,
-    workItems: remappedWorkItems,
-    dependencies: incoming.dependencies,
+    stories: allStories,
+    workItems: allWorkItems,
+    dependencies: allDependencies,
     sprints: incoming.sprints,
     placements: keptPlacements,
     settings: mergedSettings,
@@ -255,6 +291,8 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
       placementsDroppedMissingSprint,
       placementsAddedFromJira,
       placementConflicts,
+      epicsArchived,
+      epicsReactivated,
     },
   };
 }

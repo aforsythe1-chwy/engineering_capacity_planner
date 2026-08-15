@@ -1,281 +1,74 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DomainDataset } from '@ecp/shared';
+import { projectPortfolioFromDataset } from '@ecp/engine';
 import { Configuration } from './components/Configuration';
 import { DependencyGraph } from './components/DependencyGraph';
+import { EpicPicker } from './components/EpicPicker';
 import { GanttBoard } from './components/GanttBoard';
-import { JiraKeyLink } from './components/JiraLink';
-import { ProjectionCalendar } from './components/ProjectionCalendar';
-import { StatusStrip } from './components/StatusStrip';
+import { JiraRequestDebugToast } from './components/JiraRequestDebugToast';
+import { PortfolioOverview } from './components/PortfolioOverview';
 import { SyncButton } from './components/SyncButton';
-import { Timeline } from './components/Timeline';
-import { WorkItemList } from './components/WorkItemList';
-import { loadDataset, type DatasetSource } from './data/loadDataset';
-import { buildAvailabilityEntries } from './lib/availability';
+import { loadDataset, type DatasetSource, type RuntimeDataSource } from './data/loadDataset';
+import { buildPortfolioOverview } from './lib/portfolioOverview';
+import { makeDependencyScope, makeGanttScope } from './lib/plannerPageScopes';
+import { buildPlannerScope, type Scenario } from './lib/projection';
+import { type PlannerTab, usePlannerRoute } from './lib/router';
 import { formatDate } from './lib/format';
-import { memberColorMap } from './lib/memberColors';
-import { runScenario, scopeEpic, type Scenario } from './lib/projection';
 
-/** Today's date as an ISO `YYYY-MM-DD` string (UTC). */
-function currentIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+function currentIsoDate(): string { return new Date().toISOString().slice(0, 10); }
+const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Timeline'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['configuration', 'Configuration']];
 
 export function App() {
-  const [state, setState] = useState<
-    { status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource }
-  >({ status: 'loading' });
+  const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; jiraRequestDebug: boolean }>({ status: 'loading' });
+  useEffect(() => { let active = true; loadDataset().then((result) => { if (active) setState({ status: 'ready', ...result }); }); return () => { active = false; }; }, []);
+  const reload = useCallback(async () => { const result = await loadDataset(); setState({ status: 'ready', ...result }); }, []);
+  if (state.status === 'loading') return <div className="app"><div className="panel" data-testid="loading">Loading capacity plan…</div></div>;
+  return <><Planner {...state} onReload={reload} /><JiraRequestDebugToast enabled={state.jiraRequestDebug} /></>;
+}
 
-  useEffect(() => {
-    let active = true;
-    loadDataset().then(({ dataset, source }) => {
-      if (active) setState({ status: 'ready', dataset, source });
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
+function Planner({ dataset, source, dataSource, onReload }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void> }) {
+  const projection = useMemo(() => projectPortfolioFromDataset(dataset, currentIsoDate()), [dataset]);
+  const portfolio = useMemo(() => buildPortfolioOverview(dataset, projection), [dataset, projection]);
+  const activeKeys = useMemo(() => new Set(portfolio.pickerOptions.map((epic) => epic.key)), [portfolio]);
+  const { route, navigate } = usePlannerRoute(activeKeys);
+  const plannerScope = useMemo(() => buildPlannerScope(dataset, route.epics), [dataset, route.epics]);
+  const [selection] = useState(() => ({ cutItemKeys: new Set<string>(), doneItemKeys: new Set<string>() }));
+  const changeFilter = useCallback((epics: string[]) => navigate({ tab: route.tab, epics: epics.slice(0, 1) }), [navigate, route.tab]);
+  const changeTab = useCallback((tab: PlannerTab) => navigate({ tab, epics: route.epics }), [navigate, route.epics]);
 
-  // Silent re-fetch after a config write: swaps the dataset in place without
-  // flipping to the loading state, so the current tab/scenario is preserved.
-  const reload = useCallback(async () => {
-    const { dataset, source } = await loadDataset();
-    setState({ status: 'ready', dataset, source });
-  }, []);
+  if (dataset.epics.length === 0) return <EmptyLivePlanner dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} />;
+  return <AppShell dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} pickerOptions={portfolio.pickerOptions} selectedKeys={route.epics} onSelect={changeFilter} tab={route.tab} onTabChange={changeTab}>
+    {route.invalidKeys.length > 0 && <div className="panel config-notice" role="status">{route.invalidKeys.join(', ')} is no longer tracked, so you are viewing all tracked epics.</div>}
+    <ScopeSummary selectedKeys={route.epics} activeCount={plannerScope.activeEpics.length} />
+    <PlannerPage dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} tab={route.tab} selectedKeys={route.epics} scope={plannerScope} projection={projection} selection={selection} onSelect={changeFilter} />
+  </AppShell>;
+}
 
-  if (state.status === 'loading') {
-    return (
-      <div className="app">
-        <div className="panel" data-testid="loading">
-          Loading capacity plan…
-        </div>
-      </div>
-    );
+function AppShell({ dataset, source, dataSource, onReload, pickerOptions, selectedKeys, onSelect, tab, onTabChange, children }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void>; pickerOptions: ReturnType<typeof buildPortfolioOverview>['pickerOptions']; selectedKeys: string[]; onSelect: (keys: string[]) => void; tab: PlannerTab; onTabChange: (tab: PlannerTab) => void; children: ReactNode }) {
+  return <div className="app"><header className="app-header app-shell"><div><h1>Engineering Capacity Planner</h1><p className="app-subtitle">Portfolio capacity planning</p></div><div className="shell-controls">{pickerOptions.length > 0 && <EpicPicker epics={pickerOptions} selectedKeys={selectedKeys} selectionMode="single" onSelectionChange={onSelect} label="Epic filter" />}<SyncButton dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} onGoToSetup={() => onTabChange('configuration')} /></div></header><div className="source-note" data-testid="data-source" data-source={source}>{source === 'api' ? dataSource === 'jira' ? '● Live Jira data · Jira sync mode' : dataSource === 'synthetic' ? '● Live backend · synthetic mode' : '● Live backend · data source unavailable' : '○ Bundled sample data (backend not connected)'}</div><nav className="tabs" aria-label="Planner pages">{tabs.map(([value, label]) => <button type="button" key={value} className={`tab${tab === value ? ' active' : ''}`} data-testid={`tab-${value}`} onClick={() => onTabChange(value)}>{label}</button>)}</nav>{children}</div>;
+}
+
+function ScopeSummary({ selectedKeys, activeCount }: { selectedKeys: string[]; activeCount: number }) {
+  return <p className="scope-summary" role="status">{selectedKeys.length ? `Showing ${selectedKeys.join(', ')}; shared capacity still includes all ${activeCount} active epics.` : `Showing all ${activeCount} active epics.`}</p>;
+}
+
+function PlannerPage({ dataset, source, dataSource, onReload, tab, selectedKeys, scope, projection, selection, onSelect }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void>; tab: PlannerTab; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void }) {
+  if (tab === 'overview') return <PortfolioOverview dataset={dataset} selectedKeys={selectedKeys} onSelect={(key) => onSelect([key])} />;
+  if (tab === 'timeline') return <PortfolioTimeline dataset={dataset} projection={projection} selectedKeys={selectedKeys} />;
+  if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} selectedEpicKeys={selectedKeys} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
+  if (tab === 'dependencies') {
+    const displayScope = makeDependencyScope(dataset, scope);
+    const scenario: Scenario = { today: displayScope.planningToday ?? currentIsoDate(), cutItemKeys: selection.cutItemKeys, doneItemKeys: selection.doneItemKeys, greenMinBufferDays: displayScope.defaults.greenMinBufferDays, oncallMultiplier: displayScope.defaults.oncallMultiplier };
+    return <DependencyGraph scope={displayScope} scenario={scenario} />;
   }
-
-  return <Planner dataset={state.dataset} source={state.source} onReload={reload} />;
+  const ganttScope = makeGanttScope(dataset, scope);
+  return <><div className="panel gantt-context" role="status">Weekly load and capacity include the full active portfolio. {selectedKeys.length ? 'Only selected epic work is shown below.' : ''}</div><GanttBoard scope={ganttScope} source={source} /></>;
 }
 
-function Planner({
-  dataset,
-  source,
-  onReload,
-}: {
-  dataset: DomainDataset;
-  source: DatasetSource;
-  onReload: () => Promise<void>;
-}) {
-  const firstEpic = dataset.epics[0] ?? null;
-  const firstTeam = firstEpic ? (dataset.teams.find((t) => t.id === firstEpic.teamId) ?? null) : null;
-
-  if (!firstEpic || !firstTeam) {
-    return <EmptyLivePlanner dataset={dataset} source={source} onReload={onReload} />;
-  }
-
-  return <LoadedPlanner dataset={dataset} source={source} onReload={onReload} epicKey={firstEpic.key} />;
+function PortfolioTimeline({ dataset, projection, selectedKeys }: { dataset: DomainDataset; projection: ReturnType<typeof projectPortfolioFromDataset>; selectedKeys: string[] }) {
+  const results = projection.epics.filter((result) => !selectedKeys.length || selectedKeys.includes(result.epicKey));
+  return <main className="portfolio-timeline" data-testid="portfolio-timeline"><section className="panel"><div className="section-title"><h2>Portfolio timeline</h2><span className="hint">Each lane uses the shared portfolio projection; selecting an epic expands its context without granting extra capacity.</span></div>{results.map((result) => { const epic = dataset.epics.find((entry) => entry.key === result.epicKey); const gate = dataset.milestones.find((item) => item.epicKey === result.epicKey && item.isGating); const ongoing = dataset.portfolioEpics?.find((entry) => entry.epicKey === result.epicKey)?.planningKind === 'ongoing'; return <article className={`timeline-lane health-${result.health}`} key={result.epicKey}><strong>{result.epicKey} — {epic?.title}</strong>{ongoing ? <><span>Ongoing capacity work</span><span>{result.reason}</span></> : <><span>Target: {gate ? formatDate(gate.date) : 'Needs target'}</span><span>Projected: {result.projectedDevCompleteDate ? formatDate(result.projectedDevCompleteDate) : 'Not forecast'}</span><span>{result.bufferWorkingDays === null ? result.reason : `${result.bufferWorkingDays} working days buffer`}</span></>}</article>; })}</section></main>;
 }
 
-function LoadedPlanner({
-  dataset,
-  source,
-  onReload,
-  epicKey,
-}: {
-  dataset: DomainDataset;
-  source: DatasetSource;
-  onReload: () => Promise<void>;
-  epicKey: string;
-}) {
-  const scope = useMemo(() => scopeEpic(dataset, epicKey), [dataset, epicKey]);
 
-  // The planning knobs (today / green-buffer / on-call) live on the
-  // Configuration tab and are read straight from the persisted defaults below,
-  // so the timeline always reflects the current configuration. Cut / mark-done
-  // are temporarily removed, so no scenario edits happen on the timeline for now.
-  const [selection] = useState<{
-    cutItemKeys: Set<string>;
-    doneItemKeys: Set<string>;
-  }>(() => ({ cutItemKeys: new Set(), doneItemKeys: new Set() }));
-
-  const scenario = useMemo<Scenario>(
-    () => ({
-      // Demo data pins a reproducible "today"; real data uses the actual date.
-      today: scope.planningToday ?? currentIsoDate(),
-      cutItemKeys: selection.cutItemKeys,
-      doneItemKeys: selection.doneItemKeys,
-      greenMinBufferDays: scope.defaults.greenMinBufferDays,
-      oncallMultiplier: scope.defaults.oncallMultiplier,
-    }),
-    [scope, selection],
-  );
-
-  const [tab, setTab] = useState<'timeline' | 'dependencies' | 'gantt' | 'configuration'>(
-    'timeline',
-  );
-  // No verdict without a gating relevant day (e.g. a fresh Jira import). The
-  // timeline prompts the user to add one; the other tabs work regardless.
-  const result = useMemo(() => (scope.gating ? runScenario(scope, scenario) : null), [scope, scenario]);
-
-  // PTO / on-call bands for the team, used by the calendar's day-level "who's
-  // out" dots (velocity overrides aren't absences, so they're excluded here).
-  const availability = useMemo(() => {
-    const colors = memberColorMap(scope.members);
-    return buildAvailabilityEntries(dataset, scope.members, colors).filter((e) => e.kind !== 'velocity');
-  }, [dataset, scope.members]);
-
-  return (
-    <div className="app">
-      <header className="app-header">
-        <div>
-          <h1>Engineering Capacity Planner</h1>
-          <div className="epic-title">
-            <JiraKeyLink jiraKey={scope.epic.key} /> — {scope.epic.title}
-            {' · '}
-            {scope.team.name}
-          </div>
-        </div>
-        <div className="header-actions">
-          <nav className="tabs">
-            <button
-              type="button"
-              className={`tab${tab === 'timeline' ? ' active' : ''}`}
-              data-testid="tab-timeline"
-              onClick={() => setTab('timeline')}
-            >
-              Timeline
-            </button>
-            <button
-              type="button"
-              className={`tab${tab === 'dependencies' ? ' active' : ''}`}
-              data-testid="tab-dependencies"
-              onClick={() => setTab('dependencies')}
-            >
-              Dependencies
-            </button>
-            <button
-              type="button"
-              className={`tab${tab === 'gantt' ? ' active' : ''}`}
-              data-testid="tab-gantt"
-              onClick={() => setTab('gantt')}
-            >
-              Gantt Planner
-            </button>
-            <button
-              type="button"
-              className={`tab${tab === 'configuration' ? ' active' : ''}`}
-              data-testid="tab-configuration"
-              onClick={() => setTab('configuration')}
-            >
-              Configuration
-            </button>
-          </nav>
-          <SyncButton
-            dataset={dataset}
-            source={source}
-            onReload={onReload}
-            onGoToSetup={() => setTab('configuration')}
-          />
-        </div>
-      </header>
-
-      <div className="source-note" data-testid="data-source" data-source={source}>
-        {source === 'api' ? '● Live data from backend API' : '○ Bundled sample data (backend not connected)'}
-      </div>
-
-      {tab !== 'configuration' && result && <StatusStrip result={result} />}
-
-      {tab !== 'configuration' && !scope.gating && (
-        <div className="panel config-notice" data-testid="no-gating-notice">
-          This epic has no gating relevant day yet, so there's no timeline verdict to show. Add one
-          under <strong>Configuration → Relevant days</strong> (mark it gating) to project against it.
-        </div>
-      )}
-
-      {tab === 'timeline' && (
-        <>
-          {scope.gating && result && (
-            <div className="panel">
-              <Timeline scope={scope} result={result} today={scenario.today} />
-              <p className="footnote">
-                Gating relevant day: <strong>{scope.gating.name}</strong> on{' '}
-                {formatDate(scope.gating.date)}. The projection re-runs on every change below.
-              </p>
-            </div>
-          )}
-
-          {scope.gating && result && (
-            <div className="panel">
-              <ProjectionCalendar
-                scope={scope}
-                result={result}
-                today={scenario.today}
-                availability={availability}
-              />
-            </div>
-          )}
-
-          <div className="panel">
-            <WorkItemList scope={scope} scenario={scenario} />
-          </div>
-        </>
-      )}
-
-      {tab === 'dependencies' && <DependencyGraph scope={scope} scenario={scenario} />}
-
-      {tab === 'gantt' && <GanttBoard scope={scope} source={source} />}
-
-      {tab === 'configuration' && (
-        <Configuration
-          dataset={dataset}
-          teamId={scope.team.id}
-          epicKey={epicKey}
-          editable={source === 'api'}
-          onReload={onReload}
-        />
-      )}
-    </div>
-  );
-}
-
-function EmptyLivePlanner({
-  dataset,
-  source,
-  onReload,
-}: {
-  dataset: DomainDataset;
-  source: DatasetSource;
-  onReload: () => Promise<void>;
-}) {
-  return (
-    <div className="app">
-      <header className="app-header">
-        <div>
-          <h1>Engineering Capacity Planner</h1>
-          <div className="epic-title">No capacity plan loaded yet</div>
-        </div>
-        <div className="header-actions">
-          <nav className="tabs">
-            <button type="button" className="tab active" data-testid="tab-configuration">
-              Configuration
-            </button>
-          </nav>
-          <SyncButton
-            dataset={dataset}
-            source={source}
-            onReload={onReload}
-            onGoToSetup={() => undefined}
-          />
-        </div>
-      </header>
-
-      <div className="source-note" data-testid="data-source" data-source={source}>
-        {source === 'api' ? '● Live data from backend API' : '○ Bundled sample data (backend not connected)'}
-      </div>
-
-      <div className="panel config-notice" data-testid="empty-live-notice">
-        The backend is connected. Finish the Jira setup below, then sync to import the first capacity plan.
-      </div>
-
-      <Configuration dataset={dataset} teamId={null} epicKey={null} editable={source === 'api'} onReload={onReload} />
-    </div>
-  );
-}
+function EmptyLivePlanner({ dataset, source, dataSource, onReload }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void> }) { return <div className="app"><header className="app-header"><div><h1>Engineering Capacity Planner</h1><div className="epic-title">No capacity plan loaded yet</div></div><SyncButton dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} onGoToSetup={() => undefined} /></header><div className="panel config-notice" data-testid="empty-live-notice">Finish Jira setup below, then sync to import the first capacity plan.</div><Configuration dataset={dataset} teamId={null} selectedEpicKeys={[]} onFilter={() => undefined} editable={source === 'api'} dataSource={dataSource} onReload={onReload} /></div>; }

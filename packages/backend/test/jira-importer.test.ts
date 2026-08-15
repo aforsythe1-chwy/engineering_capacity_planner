@@ -95,4 +95,48 @@ describe('JiraImporter over the fake client', () => {
     const ds = await new JiraImporter(jira, { ...mapping, projectKey: 'BIG', epicKey: epic.key }).fetch();
     expect(ds.workItems).toHaveLength(250);
   });
+
+  it('imports a two-level non-Epic board root as an epic with direct work', async () => {
+    const jira = new FakeJiraClient({ boards: [{ id: 7, name: 'NF board', type: 'scrum', location: { projectKey: 'NF' } }] });
+    const feature = await jira.createIssue({ fields: { project: { key: 'NF' }, issuetype: { name: 'Feature' }, summary: 'Capacity planning' } });
+    const task = await jira.createIssue({
+      fields: { project: { key: 'NF' }, issuetype: { name: 'Task' }, summary: 'Map capacity', parent: { key: feature.key }, status: 'In Progress', customfield_10016: 5 },
+    });
+    const ds = await new JiraImporter(jira, { ...mapping, projectKey: 'NF', boardId: 7, epicKey: null, epicScopeMode: 'active' }).fetch();
+    expect(ds.epics).toEqual([expect.objectContaining({ key: feature.key, title: 'Capacity planning' })]);
+    expect(ds.stories).toEqual([expect.objectContaining({ key: `${feature.key}-UNGROUPED` })]);
+    expect(ds.workItems).toEqual([expect.objectContaining({ key: task.key, storyKey: `${feature.key}-UNGROUPED`, points: 5 })]);
+  });
+
+  it('imports Epics referenced by board issues when the board filter excludes the Epic records', async () => {
+    const jira = new FakeJiraClient({ boards: [{ id: 8, name: 'NF filtered board', type: 'scrum', location: { projectKey: 'NF' } }] });
+    const epic = await jira.createIssue({ fields: { project: { key: 'NF' }, issuetype: { name: 'Epic' }, summary: 'NF delivery' } });
+    const story = await jira.createIssue({
+      fields: { project: { key: 'NF' }, issuetype: { name: 'Story' }, summary: 'Deliver feature', parent: { key: epic.key }, status: 'In Progress', customfield_10016: 8 },
+    });
+    const subtask = await jira.createIssue({
+      fields: { project: { key: 'NF' }, issuetype: { name: 'Sub-task' }, summary: 'Implementation detail', parent: { key: story.key }, status: 'To Do', customfield_10016: 3 },
+    });
+    const filteredClient = new Proxy(jira, {
+      get(target, property, receiver) {
+        if (property === 'listBoardIssues') {
+          return async (_boardId: number, fields: string[]) => {
+            const epicRecord = await target.getIssue(epic.key, ['summary', 'status', 'issuetype']);
+            return (await target.listBoardIssues(8, fields))
+              .filter((issue) => issue.key !== epic.key)
+              .map((issue) => issue.fields.parent?.key === epic.key
+                ? { ...issue, fields: { ...issue.fields, parent: { ...issue.fields.parent, id: epicRecord.id, fields: epicRecord.fields } } }
+                : issue);
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as FakeJiraClient;
+    const ds = await new JiraImporter(filteredClient, { ...mapping, projectKey: 'NF', boardId: 8, epicKey: null, epicScopeMode: 'active' }).fetch();
+    expect(ds.epics).toEqual([expect.objectContaining({ key: epic.key, title: 'NF delivery' })]);
+    expect(ds.stories).toEqual([expect.objectContaining({ key: `${epic.key}-UNGROUPED` })]);
+    expect(ds.workItems).toEqual([expect.objectContaining({ key: story.key, storyKey: `${epic.key}-UNGROUPED`, points: 8 })]);
+    expect(ds.workItems.some((item) => item.key === subtask.key)).toBe(false);
+  });
 });

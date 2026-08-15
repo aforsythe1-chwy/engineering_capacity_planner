@@ -4,8 +4,7 @@ import * as api from '../data/api';
 import type { DatasetSource } from '../data/loadDataset';
 import { colorFor, memberColorMap } from '../lib/memberColors';
 import { formatDayShort } from '../lib/format';
-import { buildGanttView, ganttCell, ganttSprintEnd, type GanttView, type MemberWeekCapacity } from '../lib/gantt';
-import type { EpicScope } from '../lib/projection';
+import { buildGanttView, ganttCell, ganttSprintEnd, type GanttScope, type GanttView, type GanttWeek, type MemberWeekCapacity } from '../lib/gantt';
 import { MemberAvatar } from './MemberAvatar';
 import { WorkCard, type CardAssignee } from './WorkCard';
 
@@ -26,7 +25,7 @@ function localTodayIso(): string {
   return `${year}-${month}-${day}`;
 }
 
-function defaultSprintId(scope: EpicScope): string | null {
+function defaultSprintId(scope: GanttScope): string | null {
   const today = scope.planningToday ?? localTodayIso();
   const current = scope.sprints.find((s) => {
     const end = ganttSprintEnd(s, scope.team.sprintLengthDays);
@@ -48,25 +47,43 @@ function defaultSprintId(scope: EpicScope): string | null {
  * live in memory (like the Timeline tab's what-if edits), so the flow still
  * works — and e2e still passes — offline.
  */
-export function GanttBoard({ scope, source }: { scope: EpicScope; source: DatasetSource }) {
+export function GanttBoard({ scope, source }: { scope: GanttScope; source: DatasetSource }) {
   const [sprintId, setSprintId] = useState<string | null>(() => defaultSprintId(scope));
+  const [displayedWeekCount, setDisplayedWeekCount] = useState(4);
   const [openMemberId, setOpenMemberId] = useState<string | null>(null);
-  const [placements, setPlacements] = useState<PlannedPlacement[]>(scope.placements);
+  const [placements, setPlacements] = useState<PlannedPlacement[]>(scope.portfolioPlacements);
   const [dragOverWeek, setDragOverWeek] = useState<number | null>(null);
   const [dragOverBag, setDragOverBag] = useState(false);
 
   // Re-sync when the underlying dataset changes (e.g. after a reload).
-  useEffect(() => setPlacements(scope.placements), [scope.placements]);
+  useEffect(() => setPlacements(scope.portfolioPlacements), [scope.portfolioPlacements]);
   useEffect(() => {
     if (sprintId && scope.sprints.some((s) => s.id === sprintId)) return;
     setSprintId(defaultSprintId(scope));
   }, [scope, sprintId]);
 
-  const liveScope = useMemo(() => ({ ...scope, placements }), [scope, placements]);
-  const view = useMemo(() => buildGanttView(liveScope, sprintId), [liveScope, sprintId]);
+  const visibleKeys = useMemo(
+    () => new Set(scope.visibleWorkItems.map((item) => item.key)),
+    [scope.visibleWorkItems],
+  );
+  const liveScope = useMemo(
+    () => ({
+      ...scope,
+      portfolioPlacements: placements,
+      visiblePlacements: placements.filter((placement) => visibleKeys.has(placement.workItemKey)),
+    }),
+    [scope, placements, visibleKeys],
+  );
+  const view = useMemo(
+    () => buildGanttView(liveScope, sprintId, displayedWeekCount),
+    [liveScope, sprintId, displayedWeekCount],
+  );
   const colors = useMemo(() => memberColorMap(scope.members), [scope.members]);
 
-  const byKey = useMemo(() => new Map(scope.workItems.map((w) => [w.key, w])), [scope.workItems]);
+  const byKey = useMemo(
+    () => new Map(scope.visibleWorkItems.map((w) => [w.key, w])),
+    [scope.visibleWorkItems],
+  );
   const membersById = useMemo(() => new Map(scope.members.map((m) => [m.id, m])), [scope.members]);
   const assigneeOf = useMemo<AssigneeOf>(
     () => (item) => {
@@ -78,22 +95,22 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
   );
   const sprint = view.sprint;
 
-  function place(key: string, weekIndex: number): void {
-    if (!sprint || !byKey.has(key)) return;
+  function place(key: string, week: GanttWeek): void {
+    if (!byKey.has(key)) return;
     setPlacements((prev) => [
       ...prev.filter((p) => p.workItemKey !== key),
-      { id: `local-${key}`, workItemKey: key, sprintId: sprint.id, weekIndex },
+      { id: `local-${key}`, workItemKey: key, sprintId: week.sprintId, weekIndex: week.sprintWeekIndex },
     ]);
     if (source === 'api') {
       api
-        .placeWorkItem({ workItemKey: key, sprintId: sprint.id, weekIndex })
+        .placeWorkItem({ workItemKey: key, sprintId: week.sprintId, weekIndex: week.sprintWeekIndex })
         // eslint-disable-next-line no-console
         .catch((e) => console.error('Failed to persist placement', e));
     }
   }
 
   function unplace(key: string): void {
-    if (!placements.some((p) => p.workItemKey === key)) return;
+    if (!byKey.has(key) || !placements.some((p) => p.workItemKey === key)) return;
     setPlacements((prev) => prev.filter((p) => p.workItemKey !== key));
     if (source === 'api') {
       // eslint-disable-next-line no-console
@@ -120,16 +137,16 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
     if (next) setSprintId(next.id);
   };
 
-  const dropHandlers = (weekIndex: number) => ({
+  const dropHandlers = (week: GanttWeek) => ({
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault();
-      setDragOverWeek(weekIndex);
+      setDragOverWeek(week.index);
     },
-    onDragLeave: () => setDragOverWeek((w) => (w === weekIndex ? null : w)),
+    onDragLeave: () => setDragOverWeek((w) => (w === week.index ? null : w)),
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       const key = e.dataTransfer.getData(DND_KEY);
-      if (key) place(key, weekIndex);
+      if (key) place(key, week);
       setDragOverWeek(null);
     },
   });
@@ -144,7 +161,7 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
       <div className="gantt-toolbar">
         <div className="gantt-sprint">
           <label className="gantt-sprint-label" htmlFor="gantt-sprint-select">
-            Sprint
+            Starting sprint
           </label>
           <div className="gantt-sprint-picker">
             <button
@@ -183,6 +200,19 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
             </button>
           </div>
         </div>
+        <label className="gantt-horizon" htmlFor="gantt-horizon-select">
+          Weeks
+          <select
+            id="gantt-horizon-select"
+            data-testid="gantt-horizon-select"
+            value={displayedWeekCount}
+            onChange={(event) => setDisplayedWeekCount(Number(event.target.value))}
+          >
+            <option value={2}>2 weeks</option>
+            <option value={4}>4 weeks</option>
+            <option value={6}>6 weeks</option>
+          </select>
+        </label>
         <div className="gantt-legend">
           <span className="chip-legend green">green — has slack</span>
           <span className="chip-legend yellow">yellow — full</span>
@@ -191,6 +221,19 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
       </div>
 
       <div className="gantt-grid" style={gridStyle} data-testid="gantt-grid">
+        <div className="gantt-sprint-corner" aria-hidden="true" />
+        {view.sprintGroups.map((group) => (
+          <div
+            key={group.sprint.id}
+            className="gantt-sprint-header"
+            data-testid={`gantt-sprint-header-${group.sprint.id}`}
+            style={{ gridColumn: `span ${group.weekCount}` }}
+          >
+            <span className="gantt-sprint-date">{formatDayShort(group.sprint.startDate)}</span>
+            <span className="gantt-sprint-name">{group.sprint.name}</span>
+            <span className="gantt-sprint-date">{formatDayShort(ganttSprintEnd(group.sprint, scope.team.sprintLengthDays))}</span>
+          </div>
+        ))}
         <div className="gantt-corner">
           Subdivision
           <span className="gantt-corner-sub">LOE (pts)</span>
@@ -201,7 +244,7 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
             className={`gantt-week ${w.verdict}${dragOverWeek === w.index ? ' drop-target' : ''}`}
             data-testid={`gantt-week-${w.index}`}
             data-verdict={w.verdict}
-            {...dropHandlers(w.index)}
+            {...dropHandlers(w)}
           >
             <div className="gantt-week-dates">
               {formatDayShort(w.start)}–{formatDayShort(w.end)}
@@ -228,7 +271,7 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
 
       <div className="gantt-engineers" data-testid="gantt-engineer-strip">
         <span className="gantt-engineers-label">
-          Capacity by engineer — click for the weekly breakdown
+          Capacity by engineer — click for the displayed-week breakdown
         </span>
         <div className="gantt-engineers-row">
           {view.members.map((mc) => (
@@ -238,7 +281,7 @@ export function GanttBoard({ scope, source }: { scope: EpicScope; source: Datase
               className="gantt-engineer"
               data-testid={`gantt-engineer-${mc.member.id}`}
               onClick={() => setOpenMemberId(mc.member.id)}
-              title={`${mc.member.name} — ${mc.total} pts this sprint`}
+              title={`${mc.member.name} — ${mc.total} pts in this view`}
             >
               <MemberAvatar name={mc.member.name} color={colorFor(colors, mc.member.id)} size={26} avatarUrl={mc.member.avatarUrl} />
             </button>
@@ -302,7 +345,7 @@ function LaneRow({
   weeks: GanttView['weeks'];
   view: GanttView;
   dragOverWeek: number | null;
-  dropHandlers: (weekIndex: number) => Record<string, unknown>;
+  dropHandlers: (week: GanttWeek) => Record<string, unknown>;
   startDrag: (key: string) => (e: React.DragEvent) => void;
   assigneeOf: AssigneeOf;
 }) {
@@ -319,7 +362,7 @@ function LaneRow({
             key={w.index}
             className={`gantt-cell${dragOverWeek === w.index ? ' drop-target' : ''}`}
             data-testid={`gantt-cell-${slug(lane.label)}-${w.index}`}
-            {...dropHandlers(w.index)}
+            {...dropHandlers(w)}
           >
             {cell?.items.map((item: WorkItem) => (
               <WorkCard
@@ -352,7 +395,7 @@ function EngineerModal({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <strong>{member.member.name}</strong>
-          <span className="footnote">{member.total} pts this sprint</span>
+          <span className="footnote">{member.total} pts in this view</span>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
             ×
           </button>

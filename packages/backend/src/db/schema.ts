@@ -60,7 +60,27 @@ CREATE TABLE IF NOT EXISTS oncall (
 CREATE TABLE IF NOT EXISTS epic (
   key     TEXT PRIMARY KEY,
   title   TEXT NOT NULL,
-  team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE
+  team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE,
+  active INTEGER NOT NULL DEFAULT 1,
+  source_status TEXT,
+  status_category TEXT,
+  archived_at TEXT,
+  last_seen_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_epic (
+  epic_key TEXT PRIMARY KEY REFERENCES epic(key) ON DELETE CASCADE,
+  scope_override TEXT NOT NULL DEFAULT 'auto' CHECK(scope_override IN ('auto', 'include', 'exclude')),
+  planning_kind TEXT NOT NULL DEFAULT 'timeline' CHECK(planning_kind IN ('timeline', 'ongoing')),
+  priority INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS epic_sme (
+  epic_key  TEXT NOT NULL REFERENCES epic(key) ON DELETE CASCADE,
+  member_id TEXT NOT NULL REFERENCES team_member(id) ON DELETE CASCADE,
+  rank      INTEGER NOT NULL CHECK(rank >= 0),
+  PRIMARY KEY (epic_key, member_id),
+  UNIQUE (epic_key, rank)
 );
 
 CREATE TABLE IF NOT EXISTS epic_milestone (
@@ -85,6 +105,8 @@ CREATE TABLE IF NOT EXISTS work_item (
   story_key   TEXT NOT NULL REFERENCES user_story(key) ON DELETE CASCADE,
   title       TEXT NOT NULL,
   points      REAL NOT NULL,
+  is_estimated INTEGER NOT NULL DEFAULT 1,
+  jira_sprint_assigned INTEGER,
   status      TEXT NOT NULL,
   assignee_id TEXT REFERENCES team_member(id) ON DELETE SET NULL,
   -- JSON array of freeform labels, e.g. '["Cart","Payments"]'. Drives the
@@ -146,6 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_story_epic         ON user_story(epic_key);
 CREATE INDEX IF NOT EXISTS idx_work_item_story    ON work_item(story_key);
 CREATE INDEX IF NOT EXISTS idx_work_item_assignee ON work_item(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_epic     ON epic_milestone(epic_key);
+CREATE INDEX IF NOT EXISTS idx_epic_sme_member    ON epic_sme(member_id);
 CREATE INDEX IF NOT EXISTS idx_dep_blocker        ON dependency(blocker_item_key);
 CREATE INDEX IF NOT EXISTS idx_dep_blocked        ON dependency(blocked_item_key);
 CREATE INDEX IF NOT EXISTS idx_sprint_team        ON sprint(team_id);
@@ -162,6 +185,8 @@ export const INSERT_ORDER = [
   'oncall',
   'sprint',
   'epic',
+  'portfolio_epic',
+  'epic_sme',
   'epic_milestone',
   'user_story',
   'work_item',

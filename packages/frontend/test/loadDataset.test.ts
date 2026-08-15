@@ -26,6 +26,21 @@ describe('loadDataset', () => {
     expect(dataset.epics[0]?.key).toBe('API');
   });
 
+  it('reports the connected backend importer mode from health', async () => {
+    const apiDataset = loadBundledDataset();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === '/health'
+          ? new Response(JSON.stringify({ dataSource: 'jira' }), { status: 200 })
+          : new Response(JSON.stringify(apiDataset), { status: 200 }),
+      ),
+    );
+    const { source, dataSource } = await loadDataset();
+    expect(source).toBe('api');
+    expect(dataSource).toBe('jira');
+  });
+
   it('uses the API when it returns a valid empty dataset', async () => {
     const emptyDataset = {
       teams: [],

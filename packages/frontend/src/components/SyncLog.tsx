@@ -19,6 +19,8 @@ const CATEGORY_META: Record<SyncChange['category'], { label: string; tone: strin
   'member-added': { label: 'Teammate', tone: 'green' },
   'sprint-added': { label: 'Sprint', tone: 'green' },
   'sprint-removed': { label: 'Sprint', tone: 'red' },
+  'epic-archived': { label: 'Epic archived', tone: 'yellow' },
+  'epic-reactivated': { label: 'Epic reactivated', tone: 'green' },
 };
 
 /** "Sun Jul 12, 2026, 3:24 PM" from an ISO datetime. */

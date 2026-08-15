@@ -26,6 +26,8 @@ test.describe('Jira setup wizard & nav sync', () => {
 
     await page.goto('/');
 
+    await expect(page.getByTestId('data-source')).toContainText('Jira sync mode');
+
     // Sync starts locked until the mapping is complete.
     const sync = page.getByTestId('nav-sync');
     await expect(sync).toHaveAttribute('data-state', 'locked');
@@ -38,6 +40,7 @@ test.describe('Jira setup wizard & nav sync', () => {
     // The wizard is now on the Configuration tab.
     const wizard = page.getByTestId('jira-wizard');
     await expect(wizard).toBeVisible();
+    await expect(wizard.getByTestId('jira-mode')).toContainText('Jira sync mode is active');
 
     // Board step: pick the demo board (sets the project key too).
     await page.getByTestId('wizard-step-board').click();

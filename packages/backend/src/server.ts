@@ -2,14 +2,16 @@ import Fastify from 'fastify';
 import { type AppConfig, loadConfig, loadDotenv } from './config.js';
 import { openDatabase } from './db/database.js';
 import { readDataset, writeDataset } from './db/persist.js';
-import { createImporter } from './importer/factory.js';
+import { buildJiraClient, createImporter } from './importer/factory.js';
 import { HttpError } from './http-error.js';
 import type { JiraClient } from './jira/client.js';
 import { createDemoJiraClient, DEMO_MAPPING } from './jira/demo.js';
+import { CachedJiraClient, JiraRequestCache } from './jira/request-cache.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerDbRoutes } from './routes/db.js';
 import { registerJiraRoutes } from './routes/jira.js';
 import { registerPlanningRoutes } from './routes/planning.js';
+import { registerPortfolioRoutes } from './routes/portfolio.js';
 import { registerSyncRoutes } from './routes/sync.js';
 
 /** Injectable dependencies (used by tests / the round-trip harness). */
@@ -30,11 +32,12 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   let config: AppConfig = { ...loadConfig(), ...overrides };
 
   const app = Fastify({ logger: true });
-  const db = openDatabase({ path: config.dbPath });
+  let jiraCache: JiraRequestCache | undefined;
 
   // Demo mode: stand up a pre-seeded fake Jira and default its mapping, so the
   // field mapper + Sync work in the real app with no credentials.
   let jiraClient = deps.jiraClient;
+  const db = openDatabase({ path: config.dbPath });
   if (config.jiraFake && !jiraClient) {
     jiraClient = await createDemoJiraClient(config.syntheticSeed);
     config = {
@@ -48,6 +51,10 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
       },
     };
     app.log.info('ECP_JIRA_FAKE — using an in-memory demo Jira board');
+  }
+  if (config.dataSource === 'jira' && !config.jiraFake) {
+    jiraCache = new JiraRequestCache(config.jiraCacheTtlMs, config.jiraRequestDebug);
+    jiraClient = new CachedJiraClient(jiraClient ?? buildJiraClient(config.jira), jiraCache);
   }
 
   if (config.seedIfEmpty) {
@@ -77,7 +84,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
     return reply.code(500).send({ error: 'Internal Server Error' });
   });
 
-  app.get('/health', async () => ({ status: 'ok', dataSource: config.dataSource }));
+  app.get('/health', async () => ({ status: 'ok', dataSource: config.dataSource, jiraRequestDebug: jiraCache?.enabled ?? false }));
 
   app.get('/api/summary', async () => {
     const data = readDataset(db);
@@ -93,6 +100,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   });
 
   app.get('/api/dataset', async () => readDataset(db));
+  registerPortfolioRoutes(app, db);
 
   // Mutating Configuration-tab endpoints (project plan §6).
   registerConfigRoutes(app, db);
@@ -101,7 +109,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   // Jira sync: re-import + reconcile (project plan §7).
   registerSyncRoutes(app, db, config, jiraClient);
   // Jira introspection for the live field mapper (project plan §7).
-  registerJiraRoutes(app, db, config, jiraClient);
+  registerJiraRoutes(app, db, config, jiraClient, jiraCache);
   // Local DB snapshot + drag-and-drop import.
   registerDbRoutes(app, db, config);
 

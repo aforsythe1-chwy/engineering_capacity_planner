@@ -163,6 +163,7 @@ describe('datasetFromJira', () => {
       { id: 'jira-CKT-4-sprint', workItemKey: 'CKT-4', sprintId: '22', weekIndex: 0 },
       { id: 'jira-CKT-5-sprint', workItemKey: 'CKT-5', sprintId: '23', weekIndex: 1 },
     ]);
+    expect(ds.workItems.map((item) => item.jiraSprintAssigned)).toEqual([true, true, true, true]);
   });
 
   it('chooses the latest matching sprint when a ticket has multiple sprint values', () => {
@@ -191,7 +192,7 @@ describe('datasetFromJira', () => {
     ]);
   });
 
-  it('places pulled/current work into the current sprint when Jira has no sprint assignment', () => {
+  it('keeps work without a Jira sprint assignment unplaced and records that fact', () => {
     const sprints: JiraSprint[] = [
       { id: 54, name: 'Sprint 54', state: 'active', startDate: '2026-07-08T09:00:00.000+00:00', endDate: '2026-07-22T09:00:00.000+00:00' },
       { id: 55, name: 'Sprint 55', state: 'future', startDate: '2026-07-22T09:00:00.000+00:00', endDate: '2026-08-05T09:00:00.000+00:00' },
@@ -213,13 +214,14 @@ describe('datasetFromJira', () => {
       }),
     );
 
-    expect(ds.placements).toEqual([
-      { id: 'jira-CKT-8-sprint', workItemKey: 'CKT-8', sprintId: '54', weekIndex: 1 },
-      { id: 'jira-CKT-9-sprint', workItemKey: 'CKT-9', sprintId: '54', weekIndex: 1 },
+    expect(ds.placements).toEqual([]);
+    expect(ds.workItems.map((item) => [item.key, item.jiraSprintAssigned])).toEqual([
+      ['CKT-8', false],
+      ['CKT-9', false],
     ]);
   });
 
-  it('does not auto-place To Do or Won’t Do work without a sprint assignment', () => {
+  it('records an absent Jira sprint even for To Do or Won’t Do work', () => {
     const sprints: JiraSprint[] = [
       { id: 54, name: 'Sprint 54', state: 'active', startDate: '2026-07-08T09:00:00.000+00:00', endDate: '2026-07-22T09:00:00.000+00:00' },
     ];
@@ -241,6 +243,7 @@ describe('datasetFromJira', () => {
     );
 
     expect(ds.placements).toEqual([]);
+    expect(ds.workItems.map((item) => item.jiraSprintAssigned)).toEqual([false, false]);
   });
 
   it('falls back to the provided anchor when no sprint has dates', () => {

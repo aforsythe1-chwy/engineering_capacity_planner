@@ -179,6 +179,33 @@ describe('reconcileDataset', () => {
     });
   });
 
+  it('returns an old Jira-generated placement to the bag when Jira clears its sprint', () => {
+    const current: DomainDataset = {
+      ...empty(),
+      teams: [team('T', '2026-01-27')],
+      sprints: [sprint('21')],
+      workItems: [workItem('CKT-1', 'In Progress')],
+      placements: [placement('jira-CKT-1-sprint', 'CKT-1', '21')],
+    };
+    const incoming: DomainDataset = {
+      ...empty(),
+      teams: [team('T', '2026-01-27')],
+      sprints: [sprint('21')],
+      epics: [{ key: 'CKT', title: 'Checkout', teamId: 'T' }],
+      stories: [{ key: 'S1', epicKey: 'CKT', title: 'Story' }],
+      workItems: [{ ...workItem('CKT-1', 'In Progress'), jiraSprintAssigned: false }],
+    };
+
+    const { merged, changes } = reconcileDataset(current, incoming);
+
+    expect(merged.placements).toEqual([]);
+    expect(changes).toContainEqual({
+      category: 'placement-dropped',
+      entity: 'CKT-1',
+      detail: 'Removed from the plan — Jira no longer assigns a sprint',
+    });
+  });
+
   it('logs a conflict when Jira sprint placement disagrees with a local slot', () => {
     const current: DomainDataset = {
       ...empty(),

@@ -3,14 +3,20 @@ import fixture from '../fixtures/dataset.json';
 
 /** Where the dataset came from, surfaced in the UI so the wiring is visible. */
 export type DatasetSource = 'api' | 'bundled';
+export type RuntimeDataSource = 'synthetic' | 'jira' | 'unknown';
 
 export interface LoadedDataset {
   dataset: DomainDataset;
   source: DatasetSource;
+  /** Importer selected by the connected backend, when it can be identified. */
+  dataSource: RuntimeDataSource;
+  /** Whether the backend has opted in to local Jira request diagnostics. */
+  jiraRequestDebug: boolean;
 }
 
 /** The API path the UI fetches. In dev, Vite proxies `/api` to the backend. */
 const DATASET_URL = `${import.meta.env.VITE_API_BASE ?? ''}/api/dataset`;
+const HEALTH_URL = `${import.meta.env.VITE_API_BASE ?? ''}/health`;
 
 /** The bundled synthetic fixture — used as an offline fallback and in tests. */
 export function loadBundledDataset(): DomainDataset {
@@ -48,10 +54,26 @@ export async function loadDataset(): Promise<LoadedDataset> {
     const res = await fetch(DATASET_URL, { headers: { Accept: 'application/json' } });
     if (res.ok) {
       const data: unknown = await res.json();
-      if (looksLikeDataset(data)) return { dataset: data, source: 'api' };
+      if (looksLikeDataset(data)) {
+        let dataSource: RuntimeDataSource = 'unknown';
+        let jiraRequestDebug = false;
+        try {
+          const health = await fetch(HEALTH_URL, { headers: { Accept: 'application/json' } });
+          if (health.ok) {
+            const healthData = (await health.json()) as { dataSource?: unknown; jiraRequestDebug?: unknown };
+            if (healthData.dataSource === 'synthetic' || healthData.dataSource === 'jira') {
+              dataSource = healthData.dataSource;
+            }
+            jiraRequestDebug = healthData.jiraRequestDebug === true;
+          }
+        } catch {
+          // The dataset is still usable if the optional mode check fails.
+        }
+        return { dataset: data, source: 'api', dataSource, jiraRequestDebug };
+      }
     }
   } catch {
     // Backend not running / unreachable — fall through to the bundled sample.
   }
-  return { dataset: loadBundledDataset(), source: 'bundled' };
+  return { dataset: loadBundledDataset(), source: 'bundled', dataSource: 'synthetic', jiraRequestDebug: false };
 }

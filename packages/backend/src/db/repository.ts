@@ -12,6 +12,9 @@
 import { randomUUID } from 'node:crypto';
 import type {
   EpicMilestone,
+  EpicPlanningKind,
+  PortfolioEpic,
+  PortfolioScopeOverride,
   IsoDate,
   Oncall,
   PlannedPlacement,
@@ -161,6 +164,32 @@ function requireEpic(db: Db, key: string): void {
   if (!row) throw notFound(`Epic ${key} not found`);
 }
 
+/** Merge and validate a local portfolio-intent patch without resetting fields
+ * the caller did not mean to touch. */
+export function updatePortfolioEpic(db: Db, epicKey: string, patch: {
+  scopeOverride?: unknown;
+  planningKind?: unknown;
+  priority?: unknown;
+}): PortfolioEpic {
+  requireEpic(db, epicKey);
+  const entries = Object.keys(patch);
+  if (entries.length === 0) throw badRequest('At least one portfolio intent field is required');
+  if (entries.some((key) => !['scopeOverride', 'planningKind', 'priority'].includes(key))) {
+    throw badRequest('Unknown portfolio intent field');
+  }
+  const current = db.prepare('SELECT scope_override, planning_kind, priority FROM portfolio_epic WHERE epic_key = ?').get(epicKey) as any;
+  const scopeOverride = patch.scopeOverride === undefined ? (current?.scope_override ?? 'auto') : patch.scopeOverride;
+  const planningKind = patch.planningKind === undefined ? (current?.planning_kind ?? 'timeline') : patch.planningKind;
+  const priority = patch.priority === undefined ? (current?.priority ?? 0) : patch.priority;
+  if (!['auto', 'include', 'exclude'].includes(scopeOverride as string)) throw badRequest('scopeOverride must be auto, include, or exclude');
+  if (!['timeline', 'ongoing'].includes(planningKind as string)) throw badRequest('planningKind must be timeline or ongoing');
+  assertNumber(priority, 'priority', { int: true });
+  const result: PortfolioEpic = { epicKey, scopeOverride: scopeOverride as PortfolioScopeOverride, planningKind: planningKind as EpicPlanningKind, priority: priority as number };
+  db.prepare(`INSERT INTO portfolio_epic (epic_key, scope_override, planning_kind, priority) VALUES (@epicKey, @scopeOverride, @planningKind, @priority)
+    ON CONFLICT(epic_key) DO UPDATE SET scope_override = excluded.scope_override, planning_kind = excluded.planning_kind, priority = excluded.priority`).run(result);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Settings knobs
 // ---------------------------------------------------------------------------
@@ -176,6 +205,10 @@ const EDITABLE_SETTINGS: Record<string, (value: unknown, key: string) => unknown
   [SETTING_KEYS.JIRA_PROJECT_KEY]: nullableString,
   [SETTING_KEYS.JIRA_BLOCKS_LINK_TYPE]: nullableString,
   [SETTING_KEYS.JIRA_EPIC_KEY]: nullableString,
+  [SETTING_KEYS.JIRA_EPIC_SCOPE_MODE]: (v, k) => {
+    if (v !== 'single' && v !== 'active') throw badRequest(`${k} must be "single" or "active"`);
+    return v;
+  },
   [SETTING_KEYS.JIRA_BOARD_ID]: nullableString,
   [SETTING_KEYS.JIRA_BOARD_NAME]: nullableString,
   [SETTING_KEYS.JIRA_SPRINT_FIELD]: nullableString,
@@ -398,7 +431,40 @@ export function updateMember(
  * items they were assigned to become unassigned (FK ON DELETE SET NULL). */
 export function deleteMember(db: Db, id: string): void {
   requireMember(db, id);
-  db.prepare('DELETE FROM team_member WHERE id = ?').run(id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM team_member WHERE id = ?').run(id);
+    // ON DELETE CASCADE removes expertise entries. Compact every affected list
+    // so its next SME is promoted to owner (rank zero).
+    const keys = db.prepare('SELECT DISTINCT epic_key FROM epic_sme').all() as { epic_key: string }[];
+    const rewrite = db.prepare('UPDATE epic_sme SET rank = ? WHERE epic_key = ? AND member_id = ?');
+    for (const { epic_key } of keys) {
+      const rows = db.prepare('SELECT member_id FROM epic_sme WHERE epic_key = ? ORDER BY rank, member_id').all(epic_key) as { member_id: string }[];
+      rows.forEach((row, rank) => rewrite.run(rank, epic_key, row.member_id));
+    }
+  })();
+}
+
+/** Atomically replace an epic's owner-first SME list. */
+export function replaceEpicSmes(db: Db, epicKey: string, input: { memberIds?: unknown; [key: string]: unknown }) {
+  requireEpic(db, epicKey);
+  if (Object.keys(input).some((key) => key !== 'memberIds') || !Array.isArray(input.memberIds) || !input.memberIds.every((id) => typeof id === 'string')) {
+    throw badRequest('memberIds must be an array of strings and no other fields are allowed');
+  }
+  const memberIds = input.memberIds as string[];
+  if (new Set(memberIds).size !== memberIds.length) throw badRequest('memberIds must not contain duplicates');
+  const epic = db.prepare('SELECT team_id FROM epic WHERE key = ?').get(epicKey) as { team_id: string };
+  const replace = db.transaction(() => {
+    for (const memberId of memberIds) {
+      const member = db.prepare('SELECT team_id FROM team_member WHERE id = ?').get(memberId) as { team_id: string } | undefined;
+      if (!member) throw notFound(`Member ${memberId} not found`);
+      if (member.team_id !== epic.team_id) throw badRequest(`Member ${memberId} is not on this epic's team`);
+    }
+    db.prepare('DELETE FROM epic_sme WHERE epic_key = ?').run(epicKey);
+    const insert = db.prepare('INSERT INTO epic_sme (epic_key, member_id, rank) VALUES (?, ?, ?)');
+    memberIds.forEach((memberId, rank) => insert.run(epicKey, memberId, rank));
+  });
+  replace();
+  return memberIds.map((memberId, rank) => ({ epicKey, memberId, rank }));
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +568,11 @@ export function createMilestone(
     epicKey,
     name: assertNonEmptyString(input.name, 'name'),
     date: assertIsoDate(input.date, 'date'),
-    isGating: Boolean(input.isGating),
+    // A first relevant day is the useful default target. Explicitly supplied
+    // true still promotes a new day when one already exists.
+    isGating: input.isGating === undefined
+      ? (db.prepare('SELECT COUNT(*) AS n FROM epic_milestone WHERE epic_key = ?').get(epicKey) as { n: number }).n === 0
+      : Boolean(input.isGating),
   };
   const run = db.transaction(() => {
     if (milestone.isGating) clearGating(db, epicKey, milestone.id);

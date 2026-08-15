@@ -133,6 +133,22 @@ describe('members', () => {
   });
 });
 
+describe('epic SMEs', () => {
+  it('replaces owner-first ranks atomically and validates team membership', () => {
+    const rows = repo.replaceEpicSmes(db, 'CKT', { memberIds: ['M1', 'M2'] });
+    expect(rows).toEqual([{ epicKey: 'CKT', memberId: 'M1', rank: 0 }, { epicKey: 'CKT', memberId: 'M2', rank: 1 }]);
+    expectHttp(() => repo.replaceEpicSmes(db, 'CKT', { memberIds: ['M1', 'M1'] }), 400);
+    expectHttp(() => repo.replaceEpicSmes(db, 'CKT', { memberIds: ['nope'] }), 404);
+    expect(readDataset(db).epicSmes).toEqual(rows);
+  });
+
+  it('promotes the next SME after deleting an owner', () => {
+    repo.replaceEpicSmes(db, 'CKT', { memberIds: ['M1', 'M2'] });
+    repo.deleteMember(db, 'M1');
+    expect(readDataset(db).epicSmes).toEqual([{ epicKey: 'CKT', memberId: 'M2', rank: 0 }]);
+  });
+});
+
 describe('date-range modifiers', () => {
   it('creates and deletes PTO with date-order validation', () => {
     const pto = repo.createPto(db, { memberId: 'M2', startDate: '2026-08-01', endDate: '2026-08-05' });

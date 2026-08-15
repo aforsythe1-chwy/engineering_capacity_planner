@@ -186,6 +186,61 @@ describe('Jira setup wizard endpoints', () => {
     expect(miss.json().epics).toEqual([]);
   });
 
+  it('GET /api/jira/recent-tickets returns selectable non-epic board tickets', async () => {
+    app = await jiraServer(await seedFakeBoard());
+    const res = await app.inject({ method: 'GET', url: '/api/jira/recent-tickets?project=CKT' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      projectKey: 'CKT',
+      tickets: [
+        expect.objectContaining({ key: 'CKT-2', summary: 'Cart', issueType: 'Story' }),
+        expect.objectContaining({ key: 'CKT-3', summary: 'Totals', issueType: 'Story' }),
+      ],
+    });
+    expect(res.json().tickets.some((ticket: { key: string }) => ticket.key === 'CKT-1')).toBe(false);
+  });
+
+  it('GET /api/jira/current-sprint-assignees suggests people with active-sprint work', async () => {
+    const jira = await seedFakeBoard();
+    jira.setSprints(1, [{ id: 21, name: 'Current sprint', state: 'active' }]);
+    await jira.createIssue({
+      fields: {
+        project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Assigned work',
+        assignee: { accountId: 'ada', displayName: 'Ada Lovelace' },
+        customfield_10020: [{ id: 21, state: 'active' }],
+      },
+    });
+    app = await jiraServer(jira);
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { jira_board_id: '1', jira_sprint_field: 'customfield_10020' } });
+    const res = await app.inject({ method: 'GET', url: '/api/jira/current-sprint-assignees' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      currentSprint: { id: 21, name: 'Current sprint' },
+      users: [expect.objectContaining({ accountId: 'ada', displayName: 'Ada Lovelace', ticketCount: 1 })],
+    });
+  });
+
+  it('GET /api/jira/epic-scope/preview discovers all active epics with remaining work', async () => {
+    const jira = await seedFakeBoard();
+    const second = await jira.createIssue({
+      fields: { project: { key: 'CKT' }, issuetype: { name: 'Epic' }, summary: 'Payments' },
+    });
+    const story = await jira.createIssue({
+      fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Gateway', parent: { key: second.key } },
+    });
+    await jira.createIssue({
+      fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Retry', parent: { key: story.key }, customfield_10016: 8 },
+    });
+    app = await jiraServer(jira);
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { jira_story_points_field: 'customfield_10016' } });
+    const res = await app.inject({ method: 'GET', url: '/api/jira/epic-scope/preview?project=CKT' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().epics).toEqual([
+      expect.objectContaining({ key: 'CKT-1', remainingItems: 1, remainingPoints: 5 }),
+      expect.objectContaining({ key: second.key, remainingItems: 1, remainingPoints: 8 }),
+    ]);
+  });
+
   it('GET /api/jira/users searches the people picker', async () => {
     // A board whose issue carries an assignee, plus an extra directory user.
     const jira = new FakeJiraClient({

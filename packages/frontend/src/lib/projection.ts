@@ -14,7 +14,7 @@ import type {
   VelocityOverride,
   WorkItem,
 } from '@ecp/shared';
-import { SETTING_KEYS } from '@ecp/shared';
+import { effectivePortfolioEpic, SETTING_KEYS } from '@ecp/shared';
 import { project, readEngineConfig, type ProjectionResult } from '@ecp/engine';
 
 /** Everything the timeline needs about a single epic, pulled from the dataset. */
@@ -62,6 +62,49 @@ export interface Scenario {
   doneItemKeys: ReadonlySet<string>;
   greenMinBufferDays: number;
   oncallMultiplier: number;
+}
+
+/**
+ * The page-level selection contract. Visible collections are safe to use for
+ * detail and emphasis; portfolio collections must remain the source for shared
+ * capacity and cross-epic context. Empty `selectedEpicKeys` means all active
+ * epics, never an empty planner.
+ */
+export interface PlannerScope {
+  activeEpics: Epic[];
+  selectedEpicKeys: string[];
+  visibleEpics: Epic[];
+  visibleStories: UserStory[];
+  visibleWorkItems: WorkItem[];
+  visibleMilestones: EpicMilestone[];
+  portfolioWorkItems: WorkItem[];
+  portfolioDependencies: Dependency[];
+  portfolioPlacements: PlannedPlacement[];
+}
+
+export function buildPlannerScope(dataset: DomainDataset, selectedEpicKeys: readonly string[]): PlannerScope {
+  const activeEpics = dataset.epics.filter((epic) => effectivePortfolioEpic(dataset, epic.key).tracked);
+  const activeKeys = new Set(activeEpics.map((epic) => epic.key));
+  const selected = new Set(selectedEpicKeys.filter((key) => activeKeys.has(key)));
+  const visibleKeys = selected.size ? selected : activeKeys;
+  const portfolioStories = dataset.stories.filter((story) => activeKeys.has(story.epicKey));
+  const portfolioStoryKeys = new Set(portfolioStories.map((story) => story.key));
+  const portfolioWorkItems = dataset.workItems.filter((item) => portfolioStoryKeys.has(item.storyKey));
+  const portfolioItemKeys = new Set(portfolioWorkItems.map((item) => item.key));
+  const visibleStories = portfolioStories.filter((story) => visibleKeys.has(story.epicKey));
+  const visibleStoryKeys = new Set(visibleStories.map((story) => story.key));
+  const visibleWorkItems = portfolioWorkItems.filter((item) => visibleStoryKeys.has(item.storyKey));
+  return {
+    activeEpics,
+    selectedEpicKeys: activeEpics.map((epic) => epic.key).filter((key) => selected.has(key)),
+    visibleEpics: activeEpics.filter((epic) => visibleKeys.has(epic.key)),
+    visibleStories,
+    visibleWorkItems,
+    visibleMilestones: dataset.milestones.filter((milestone) => visibleKeys.has(milestone.epicKey)).sort((a, b) => a.date.localeCompare(b.date)),
+    portfolioWorkItems,
+    portfolioDependencies: dataset.dependencies.filter((edge) => portfolioItemKeys.has(edge.blockerItemKey) && portfolioItemKeys.has(edge.blockedItemKey)),
+    portfolioPlacements: dataset.placements.filter((placement) => portfolioItemKeys.has(placement.workItemKey)),
+  };
 }
 
 /** Extract and pre-scope one epic's inputs from the full dataset. */

@@ -4,10 +4,9 @@ import { isMappingComplete, SETTING_KEYS } from '@ecp/shared';
 import * as api from '../data/api';
 import { memberColorMap } from '../lib/memberColors';
 import { MemberAvatar } from './MemberAvatar';
-import { JiraFieldMapper } from './JiraFieldMapper';
 import { TicketFieldModal } from './TicketFieldModal';
 import { Typeahead } from './Typeahead';
-import { JiraKeyLink } from './JiraLink';
+import type { RuntimeDataSource } from '../data/loadDataset';
 
 /** Read a JSON-encoded global setting, or `fallback` when absent. */
 function settingValue<T>(dataset: DomainDataset, key: string, fallback: T): T {
@@ -24,16 +23,18 @@ interface WizardProps {
   disabled: boolean;
   run: Run;
   onReload: () => Promise<void>;
+  dataSource: RuntimeDataSource;
 }
 
-type StepId = 'connect' | 'board' | 'epic' | 'fields' | 'members';
+type StepId = 'connect' | 'board' | 'scope' | 'fields' | 'members' | 'review';
 
 const STEPS: Array<{ id: StepId; title: string }> = [
   { id: 'connect', title: 'Connect' },
   { id: 'board', title: 'Board' },
-  { id: 'epic', title: 'Epic' },
+  { id: 'scope', title: 'Epic scope' },
   { id: 'fields', title: 'Fields' },
   { id: 'members', title: 'Members' },
+  { id: 'review', title: 'Review' },
 ];
 
 /**
@@ -43,24 +44,27 @@ const STEPS: Array<{ id: StepId; title: string }> = [
  * of typing opaque ids. Each choice persists to settings / the members table and
  * reloads, so the rest of the app (and the nav Sync button) react immediately.
  */
-export function JiraSetupWizard({ dataset, teamId, members, disabled, run, onReload }: WizardProps) {
+export function JiraSetupWizard({ dataset, teamId, members, disabled, run, onReload, dataSource }: WizardProps) {
   const projectKey = settingValue<string | null>(dataset, SETTING_KEYS.JIRA_PROJECT_KEY, null);
   const boardId = settingValue<string | null>(dataset, SETTING_KEYS.JIRA_BOARD_ID, null);
   const epicKey = settingValue<string | null>(dataset, SETTING_KEYS.JIRA_EPIC_KEY, null);
+  const scopeMode = settingValue<'single' | 'active' | null>(dataset, SETTING_KEYS.JIRA_EPIC_SCOPE_MODE, null)
+    ?? (epicKey ? 'single' : 'active');
   const mapped = isMappingComplete(dataset.settings);
 
   const done: Record<StepId, boolean> = {
     connect: false, // filled from the live connection check below
     board: boardId !== null,
-    epic: epicKey !== null,
+    scope: scopeMode === 'active',
     fields: mapped,
     members: teamId !== null && members.some((m) => m.jiraAccountId),
+    review: boardId !== null && scopeMode === 'active' && mapped,
   };
 
   // First unfinished step is the natural landing spot.
   const [step, setStep] = useState<StepId>(() => {
     if (!boardId) return 'board';
-    if (!epicKey) return 'epic';
+    if (scopeMode !== 'active') return 'scope';
     if (!mapped) return 'fields';
     return 'connect';
   });
@@ -69,7 +73,19 @@ export function JiraSetupWizard({ dataset, teamId, members, disabled, run, onRel
     <section className="panel jira-wizard" data-testid="jira-wizard">
       <div className="section-title">
         <h2>Connect to Jira</h2>
-        <span className="hint">Wire up your board, pick what to track, and map fields — no ids to memorize.</span>
+        <span className="hint">Wire up your board, review its active epics, and map fields — no ids to memorize.</span>
+      </div>
+
+      <div className={`jira-mode ${dataSource === 'jira' ? 'active' : 'inactive'}`} data-testid="jira-mode">
+        <strong>{dataSource === 'jira' ? 'Jira sync mode is active' : 'Jira sync mode is not active'}</strong>
+        <p>
+          {dataSource === 'jira'
+            ? 'The Sync button will import all active epics and the shared sprint schedule from Jira.'
+            : 'Your choices below can be saved now, but Sync will not read Jira until the backend is restarted with ECP_DATA_SOURCE=jira.'}
+        </p>
+        {dataSource !== 'jira' && (
+          <code>ECP_DATA_SOURCE=jira npm run dev</code>
+        )}
       </div>
 
       <ol className="wizard-steps" data-testid="wizard-steps">
@@ -91,24 +107,24 @@ export function JiraSetupWizard({ dataset, teamId, members, disabled, run, onRel
       <div className="wizard-body">
         {step === 'connect' && <ConnectStep />}
         {step === 'board' && (
-          <BoardStep dataset={dataset} projectKey={projectKey} boardId={boardId} disabled={disabled} run={run} onNext={() => setStep('epic')} />
+          <BoardStep dataset={dataset} projectKey={projectKey} boardId={boardId} disabled={disabled} run={run} onNext={() => setStep('scope')} />
         )}
-        {step === 'epic' && (
-          <EpicStep projectKey={projectKey} epicKey={epicKey} disabled={disabled} run={run} onNext={() => setStep('fields')} />
+        {step === 'scope' && (
+          <EpicScopeStep projectKey={projectKey} scopeMode={scopeMode} legacyEpicKey={epicKey} disabled={disabled} run={run} onNext={() => setStep('fields')} />
         )}
         {step === 'fields' && (
           <FieldsStep
             dataset={dataset}
             projectKey={projectKey}
-            epicKey={epicKey}
             disabled={disabled}
             run={run}
             onNext={() => setStep('members')}
           />
         )}
         {step === 'members' && (
-          <MembersStep teamId={teamId} members={members} disabled={disabled} run={run} onReload={onReload} />
+          <MembersStep teamId={teamId} members={members} disabled={disabled} run={run} onReload={onReload} onNext={() => setStep('review')} />
         )}
+        {step === 'review' && <ReviewStep dataset={dataset} members={members} dataSource={dataSource} projectKey={projectKey} boardId={boardId} />}
       </div>
     </section>
   );
@@ -179,6 +195,7 @@ function BoardStep({ dataset, projectKey, boardId, disabled, run, onNext }: {
         [SETTING_KEYS.JIRA_BOARD_NAME]: null,
         [SETTING_KEYS.JIRA_PROJECT_KEY]: null,
         [SETTING_KEYS.JIRA_EPIC_KEY]: null,
+        [SETTING_KEYS.JIRA_EPIC_SCOPE_MODE]: 'active',
         [SETTING_KEYS.JIRA_STORY_POINTS_FIELD]: null,
         [SETTING_KEYS.JIRA_SPRINT_FIELD]: null,
         [SETTING_KEYS.JIRA_LABELS_FIELD]: null,
@@ -226,6 +243,8 @@ function BoardStep({ dataset, projectKey, boardId, disabled, run, onNext }: {
               api.patchSettings({
                 [SETTING_KEYS.JIRA_BOARD_ID]: String(b.id),
                 [SETTING_KEYS.JIRA_BOARD_NAME]: b.name,
+                [SETTING_KEYS.JIRA_EPIC_SCOPE_MODE]: 'active',
+                [SETTING_KEYS.JIRA_EPIC_KEY]: null,
                 // A board carries its project; setting it unlocks epic + sample.
                 ...(b.projectKey ? { [SETTING_KEYS.JIRA_PROJECT_KEY]: b.projectKey } : {}),
               }),
@@ -235,7 +254,7 @@ function BoardStep({ dataset, projectKey, boardId, disabled, run, onNext }: {
       )}
       <div className="wizard-nav">
         <button type="button" className="btn" disabled={!boardId} onClick={onNext} data-testid="wizard-board-next">
-          Next: pick an epic →
+          Next: review epic scope →
         </button>
       </div>
     </div>
@@ -243,62 +262,65 @@ function BoardStep({ dataset, projectKey, boardId, disabled, run, onNext }: {
 }
 
 // ---------------------------------------------------------------------------
-// Epic
+// Epic scope
 // ---------------------------------------------------------------------------
-function EpicStep({ projectKey, epicKey, disabled, run, onNext }: {
-  projectKey: string | null; epicKey: string | null; disabled: boolean; run: Run; onNext: () => void;
+function EpicScopeStep({ projectKey, scopeMode, legacyEpicKey, disabled, run, onNext }: {
+  projectKey: string | null; scopeMode: 'single' | 'active'; legacyEpicKey: string | null; disabled: boolean; run: Run; onNext: () => void;
 }) {
-  const [text, setText] = useState('');
-  const clearEpic = () => {
-    setText('');
-    run(() => api.patchSettings({ [SETTING_KEYS.JIRA_EPIC_KEY]: null }));
+  const [preview, setPreview] = useState<api.JiraEpicScopePreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = () => {
+    if (!projectKey) return;
+    setLoading(true); setError(null);
+    api.previewJiraEpicScope(projectKey).then(setPreview).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false));
   };
+  const refreshFromJira = () => {
+    if (!projectKey) return;
+    setLoading(true); setError(null);
+    api.refreshJiraCache().then(load).catch((e) => { setError(e instanceof Error ? e.message : String(e)); setLoading(false); });
+  };
+  useEffect(load, [projectKey]);
+  const useActiveScope = () => run(() => api.patchSettings({
+    [SETTING_KEYS.JIRA_EPIC_SCOPE_MODE]: 'active',
+    [SETTING_KEYS.JIRA_EPIC_KEY]: null,
+  }));
   return (
-    <div data-testid="wizard-epic">
+    <div data-testid="wizard-epic-scope">
       <p className="hint wizard-help">
-        Choose the epic to track{projectKey ? <> in <code>{projectKey}</code></> : null}. Work under
-        it (stories → tickets) is what gets imported.
+        The selected board defines the portfolio. Every unresolved epic with remaining work is imported
+        and competes for one shared team-capacity schedule.
       </p>
-      {!projectKey && <div className="config-error">Pick a board first so we know which project to search.</div>}
-      {epicKey && (
-        <div className="wizard-current" data-testid="wizard-epic-current">
-          <span>
-            Tracking epic: <JiraKeyLink jiraKey={epicKey} />
-          </span>
-          <button
-            type="button"
-            className="wizard-clear"
-            aria-label="Clear selected epic"
-            disabled={disabled}
-            onClick={clearEpic}
-          >
-            ×
-          </button>
+      {!projectKey && <div className="config-error">Pick a board first so its epic scope can be discovered.</div>}
+      {scopeMode === 'single' && (
+        <div className="jira-mode inactive" data-testid="wizard-legacy-epic-scope">
+          <strong>Legacy single-epic scope{legacyEpicKey ? `: ${legacyEpicKey}` : ''}</strong>
+          <p>This database will keep its current behavior until you explicitly switch it to the active portfolio.</p>
+          <button type="button" className="btn primary" disabled={disabled || !projectKey} onClick={useActiveScope}>Use all active epics</button>
         </div>
       )}
-      {!epicKey && (
-        <Typeahead
-          value={text}
-          onChange={setText}
-          disabled={disabled || !projectKey}
-          searchOnEmpty
-          placeholder="Search epics…"
-          testId="wizard-epic-search"
-          search={(q) =>
-            api.searchJiraEpics({ project: projectKey ?? undefined, q }).then((r) =>
-              r.epics.map((e) => ({ id: e.key, label: e.summary, hint: e.key })),
-            )
-          }
-          onSelect={(opt) => {
-            setText('');
-            run(() => api.patchSettings({ [SETTING_KEYS.JIRA_EPIC_KEY]: opt.id }));
-          }}
-        />
+      {scopeMode === 'active' && <div className="wizard-current"><strong>All active epics</strong><span> · no single epic selection required</span></div>}
+      {loading && <p className="hint">Discovering active epics…</p>}
+      {error && <div className="config-error">{error}</div>}
+      {preview && (
+        <div className="config-list" data-testid="wizard-epic-preview">
+          {preview.epics.map((epic) => (
+            <div className="config-row" key={epic.key}>
+              <code>{epic.key}</code><span className="config-primary">{epic.summary}</span>
+              <span className="unit">{epic.status}</span>
+              <span className="unit">{epic.remainingItems} remaining · {epic.remainingPoints} pts{epic.unestimatedItems ? ` · ${epic.unestimatedItems} unestimated` : ''}</span>
+            </div>
+          ))}
+          {preview.epics.length === 0 && <div className="config-notice" data-testid="wizard-epic-preview-diagnostics"><strong>No roots are currently importable.</strong><p>Board {preview.diagnostics.boardId} returned {preview.diagnostics.boardIssueCount} issues. Root selection: {preview.diagnostics.rootSelection === 'jira-epic' ? 'Jira issue type “Epic”' : preview.diagnostics.rootSelection === 'referenced-jira-epic' ? 'Jira Epics referenced by board issues' : 'parentless board records (no Jira Epics found)'}.</p><p>Parentless issue types: {Object.entries(preview.diagnostics.rootIssueTypes).map(([type, count]) => `${type} (${count})`).join(', ') || 'none'}.</p><p>Candidate outcomes: {Object.entries(preview.diagnostics.exclusionCounts).map(([reason, count]) => `${reason.replaceAll('-', ' ')} (${count})`).join(', ')}.</p><p className="hint">Both root → work and root → child record → work hierarchies are supported. This list shows why none of the detected roots qualified.</p></div>}
+          {preview.archived.length > 0 && <div className="hint">Will archive: {preview.archived.map((e) => e.key).join(', ')}</div>}
+        </div>
       )}
       <div className="wizard-nav">
-        <button type="button" className="btn" disabled={!epicKey} onClick={onNext} data-testid="wizard-epic-next">
+        <button type="button" className="btn" disabled={scopeMode !== 'active' || !projectKey} onClick={onNext} data-testid="wizard-epic-scope-next">
           Next: map fields →
         </button>
+        <button type="button" className="link-btn" disabled={!projectKey || loading} onClick={load}>Refresh preview (cache)</button>
+        <button type="button" className="link-btn" disabled={!projectKey || loading} onClick={refreshFromJira}>Refresh from Jira</button>
       </div>
     </div>
   );
@@ -307,11 +329,19 @@ function EpicStep({ projectKey, epicKey, disabled, run, onNext }: {
 // ---------------------------------------------------------------------------
 // Fields
 // ---------------------------------------------------------------------------
-function FieldsStep({ dataset, projectKey, epicKey, disabled, run, onNext }: {
-  dataset: DomainDataset; projectKey: string | null; epicKey: string | null; disabled: boolean; run: Run; onNext: () => void;
+function FieldsStep({ dataset, projectKey, disabled, run, onNext }: {
+  dataset: DomainDataset; projectKey: string | null; disabled: boolean; run: Run; onNext: () => void;
 }) {
-  const [showTicket, setShowTicket] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [ticketRef, setTicketRef] = useState<string | null>(null);
+  const [recent, setRecent] = useState<api.JiraRecentTicket[]>([]);
+  const [recentError, setRecentError] = useState<string | null>(null);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+  const loadRecent = () => {
+    if (!projectKey) return;
+    setLoadingRecent(true); setRecentError(null);
+    api.getRecentJiraTickets(projectKey).then((result) => setRecent(result.tickets)).catch((error) => setRecentError(error instanceof Error ? error.message : String(error))).finally(() => setLoadingRecent(false));
+  };
+  useEffect(loadRecent, [projectKey]);
   return (
     <div data-testid="wizard-fields">
       <p className="hint wizard-help">
@@ -321,34 +351,37 @@ function FieldsStep({ dataset, projectKey, epicKey, disabled, run, onNext }: {
 
       <div className="ticket-cta" data-testid="wizard-ticket-cta">
         <div>
-          <strong>Map from a ticket you know</strong>
-          <div className="hint">Enter a ticket number or URL and we’ll read its fields for you.</div>
+          <strong>Choose a recent ticket from this board</strong>
+          <div className="hint">Pick a familiar issue and we’ll open its fields for mapping.</div>
         </div>
-        <button type="button" className="btn primary" disabled={disabled} data-testid="wizard-open-ticket"
-          onClick={() => setShowTicket(true)}>
-          Enter a ticket →
+        <button type="button" className="link-btn" disabled={disabled || loadingRecent || !projectKey} onClick={loadRecent}>
+          {loadingRecent ? 'Loading…' : 'Refresh'}
         </button>
       </div>
-
-      <button type="button" className="link-btn" data-testid="wizard-toggle-advanced"
-        onClick={() => setShowAdvanced((v) => !v)}>
-        {showAdvanced ? '▾ Hide' : '▸ Prefer to browse a board sample?'}
+      {!projectKey && <div className="config-error">Select a board first to load its tickets.</div>}
+      {recentError && <div className="config-error">{recentError}</div>}
+      {projectKey && <div className="recent-ticket-list" data-testid="wizard-recent-tickets">
+        {recent.map((ticket) => <button type="button" className="recent-ticket-row" key={ticket.key} disabled={disabled} onClick={() => setTicketRef(ticket.key)}>
+          <code>{ticket.key}</code><span className="recent-ticket-summary">{ticket.summary}</span><span className="jira-field-badge">{ticket.issueType}</span><span className="unit">{ticket.status}</span><span className="recent-ticket-action">Map fields →</span>
+        </button>)}
+        {!loadingRecent && recent.length === 0 && <p className="hint">No recent non-epic tickets were found on this board.</p>}
+      </div>}
+      <button type="button" className="link-btn" data-testid="wizard-open-ticket" disabled={disabled} onClick={() => setTicketRef('')}>
+        Enter a ticket key or URL instead
       </button>
-      {showAdvanced && (
-        <JiraFieldMapper dataset={dataset} disabled={disabled} run={run} project={projectKey ?? undefined} epic={epicKey ?? undefined} autoLoad />
-      )}
 
       <div className="wizard-nav">
         <button type="button" className="btn" onClick={onNext}>Next: team members →</button>
       </div>
 
-      {showTicket && (
+      {ticketRef !== null && (
         <TicketFieldModal
           dataset={dataset}
           disabled={disabled}
           run={run}
-          initialRef={epicKey ?? ''}
-          onClose={() => setShowTicket(false)}
+          initialRef={ticketRef}
+          autoLoad={ticketRef !== ''}
+          onClose={() => setTicketRef(null)}
         />
       )}
     </div>
@@ -358,12 +391,27 @@ function FieldsStep({ dataset, projectKey, epicKey, disabled, run, onNext }: {
 // ---------------------------------------------------------------------------
 // Members
 // ---------------------------------------------------------------------------
-function MembersStep({ teamId, members, disabled, run, onReload }: {
-  teamId: string | null; members: TeamMember[]; disabled: boolean; run: Run; onReload: () => Promise<void>;
+function MembersStep({ teamId, members, disabled, run, onReload, onNext }: {
+  teamId: string | null; members: TeamMember[]; disabled: boolean; run: Run; onReload: () => Promise<void>; onNext: () => void;
 }) {
   const colors = useMemo(() => memberColorMap(members), [members]);
   const [addText, setAddText] = useState('');
+  const [sprintSuggestions, setSprintSuggestions] = useState<api.JiraCurrentSprintAssignees | null>(null);
+  const [sprintError, setSprintError] = useState<string | null>(null);
   const memberControlsDisabled = disabled || teamId === null;
+  const addSuggestedMember = (user: api.JiraCurrentSprintAssignees['users'][number]) => {
+    if (teamId === null) return;
+    run(async () => {
+      await api.createMember({ teamId, name: user.displayName, baseVelocity: 10, jiraAccountId: user.accountId, avatarUrl: user.avatarUrl });
+      await onReload();
+    });
+  };
+  const loadSprintSuggestions = () => {
+    setSprintError(null);
+    api.getCurrentSprintAssignees().then(setSprintSuggestions).catch((error) => setSprintError(error instanceof Error ? error.message : String(error)));
+  };
+  useEffect(loadSprintSuggestions, []);
+  const unlinkedSuggestions = sprintSuggestions?.users.filter((user) => !members.some((member) => member.jiraAccountId === user.accountId)) ?? [];
 
   return (
     <div data-testid="wizard-members">
@@ -377,8 +425,17 @@ function MembersStep({ teamId, members, disabled, run, onReload }: {
         </div>
       )}
 
+      <section className="sprint-member-suggestions" data-testid="wizard-sprint-assignees">
+        <div className="sprint-member-heading"><div><strong>Assigned in the current sprint</strong><span className="hint">{sprintSuggestions?.currentSprint ? ` · ${sprintSuggestions.currentSprint.name}` : ''}</span></div><button type="button" className="link-btn" disabled={disabled} onClick={loadSprintSuggestions}>Refresh</button></div>
+        {sprintError && <div className="config-error">{sprintError}</div>}
+        {sprintSuggestions?.reason && <p className="hint">{sprintSuggestions.reason}</p>}
+        {unlinkedSuggestions.map((user) => <div className="sprint-member-row" key={user.accountId}><MemberAvatar name={user.displayName} color="#5b8cff" size={24} avatarUrl={user.avatarUrl} /><span>{user.displayName}</span><span className="unit">{user.ticketCount} assigned ticket{user.ticketCount === 1 ? '' : 's'}</span><button type="button" className="btn btn-tiny" disabled={memberControlsDisabled} onClick={() => addSuggestedMember(user)}>Add to team</button></div>)}
+        {sprintSuggestions && !sprintSuggestions.reason && unlinkedSuggestions.length === 0 && <p className="hint">Everyone assigned in the current sprint is already linked to this team.</p>}
+        {!sprintSuggestions && !sprintError && <p className="hint">Loading current-sprint assignees…</p>}
+      </section>
+
       <div className="control">
-        <label>Add a teammate from Jira</label>
+        <label>Search all Jira users</label>
         <Typeahead
           value={addText}
           onChange={setAddText}
@@ -411,8 +468,27 @@ function MembersStep({ teamId, members, disabled, run, onReload }: {
         ))}
         {members.length === 0 && <div className="hint">No team members yet — search above to add some.</div>}
       </div>
+      <div className="wizard-nav"><button type="button" className="btn" onClick={onNext}>Next: review →</button></div>
     </div>
   );
+}
+
+function ReviewStep({ dataset, members, dataSource, projectKey, boardId }: {
+  dataset: DomainDataset; members: TeamMember[]; dataSource: RuntimeDataSource; projectKey: string | null; boardId: string | null;
+}) {
+  const boardName = settingValue<string | null>(dataset, SETTING_KEYS.JIRA_BOARD_NAME, null);
+  const mapped = isMappingComplete(dataset.settings);
+  return <div data-testid="wizard-review">
+    <p className="hint wizard-help">Review the portfolio setup before syncing.</p>
+    <div className="config-list">
+      <div className="config-row"><strong>Board</strong><span className="config-primary">{boardName ?? (boardId ? `#${boardId}` : 'Not selected')}</span>{projectKey && <code>{projectKey}</code>}</div>
+      <div className="config-row"><strong>Epic scope</strong><span className="config-primary">All active epics with remaining work</span></div>
+      <div className="config-row"><strong>Capacity</strong><span className="config-primary">One shared team pool across the portfolio</span></div>
+      <div className="config-row"><strong>Fields</strong><span className="config-primary">{mapped ? 'Required mappings complete' : 'Required mappings incomplete'}</span></div>
+      <div className="config-row"><strong>Members</strong><span className="config-primary">{members.filter((m) => m.jiraAccountId).length} connected</span></div>
+      <div className="config-row"><strong>Backend</strong><span className="config-primary">{dataSource === 'jira' ? 'Jira sync mode active' : 'Restart with ECP_DATA_SOURCE=jira before syncing'}</span></div>
+    </div>
+  </div>;
 }
 
 function MemberLinkRow({ member, color, disabled, run, onReload }: {

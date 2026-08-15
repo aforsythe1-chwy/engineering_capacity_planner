@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:portfolio": "playwright test e2e/portfolio.visual.spec.ts",
+    "screenshots:portfolio": "playwright test e2e/portfolio.visual.spec.ts --update-snapshots"
   },
   "dependencies": {
     "@ecp/engine": "*",

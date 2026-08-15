@@ -112,6 +112,68 @@ export interface Epic {
   key: string;
   title: string;
   teamId: string;
+  /** Whether this epic currently consumes the team's portfolio capacity. */
+  active?: boolean;
+  /** Jira display status and normalized status category, retained for orientation. */
+  sourceStatus?: string | null;
+  statusCategory?: string | null;
+  archivedAt?: string | null;
+  lastSeenAt?: string | null;
+}
+
+export type PortfolioScopeOverride = 'auto' | 'include' | 'exclude';
+export type EpicPlanningKind = 'timeline' | 'ongoing';
+
+/** Local portfolio intent; Jira never overwrites this row. */
+export interface PortfolioEpic {
+  epicKey: string;
+  scopeOverride: PortfolioScopeOverride;
+  planningKind: EpicPlanningKind;
+  priority: number;
+}
+
+/** Locally-authored expertise order for an epic. Rank zero is its owner. */
+export interface EpicSme {
+  epicKey: string;
+  memberId: string;
+  rank: number;
+}
+
+/** Return an epic's expertise list in its canonical (owner-first) order. */
+export function epicSmes(dataset: Pick<DomainDataset, 'epicSmes'>, epicKey: string): EpicSme[] {
+  return (dataset.epicSmes ?? [])
+    .filter((entry) => entry.epicKey === epicKey)
+    .slice()
+    .sort((a, b) => a.rank - b.rank || a.memberId.localeCompare(b.memberId));
+}
+
+/** The owner is derived, never stored separately, from the first SME rank. */
+export function epicOwnerId(dataset: Pick<DomainDataset, 'epicSmes'>, epicKey: string): string | null {
+  return epicSmes(dataset, epicKey)[0]?.memberId ?? null;
+}
+
+/** Null deliberately represents a member starting from scratch on this epic. */
+export function epicSmeRank(dataset: Pick<DomainDataset, 'epicSmes'>, epicKey: string, memberId: string): number | null {
+  return epicSmes(dataset, epicKey).find((entry) => entry.memberId === memberId)?.rank ?? null;
+}
+
+/**
+ * Resolve Jira-owned lifecycle facts and locally-owned portfolio intent in one
+ * place. Missing intent rows deliberately retain the historic timeline/auto
+ * behaviour, so fixtures and older databases need no eager backfill.
+ */
+export function effectivePortfolioEpic(dataset: Pick<DomainDataset, 'epics' | 'portfolioEpics'>, epicKey: string): {
+  scopeOverride: PortfolioScopeOverride;
+  planningKind: EpicPlanningKind;
+  priority: number;
+  tracked: boolean;
+} {
+  const intent = dataset.portfolioEpics?.find((entry) => entry.epicKey === epicKey);
+  const scopeOverride = intent?.scopeOverride ?? 'auto';
+  const planningKind = intent?.planningKind ?? 'timeline';
+  const priority = intent?.priority ?? 0;
+  const epic = dataset.epics.find((entry) => entry.key === epicKey);
+  return { scopeOverride, planningKind, priority, tracked: Boolean(epic && epic.active !== false && scopeOverride !== 'exclude') };
 }
 
 /**
@@ -152,8 +214,16 @@ export interface WorkItem {
   key: string;
   storyKey: string;
   title: string;
-  /** Story-point estimate. */
+  /** Story-point estimate (zero is retained for backwards compatibility). */
   points: number;
+  /** False when Jira supplied no estimate; distinguishes absent from a real zero. */
+  isEstimated?: boolean;
+  /**
+   * Whether Jira assigned this item to a sprint when it was last imported.
+   * Absent for locally-created and synthetic work, where Jira is not the
+   * source of truth for sprint assignment.
+   */
+  jiraSprintAssigned?: boolean;
   status: WorkItemStatus;
   /** {@link TeamMember.id} of the assignee, or `null` if unassigned. */
   assigneeId: string | null;
@@ -240,6 +310,9 @@ export interface DomainDataset {
   pto: Pto[];
   oncall: Oncall[];
   epics: Epic[];
+  portfolioEpics?: PortfolioEpic[];
+  /** Optional for backwards-compatible fixture and JSON imports. */
+  epicSmes?: EpicSme[];
   milestones: EpicMilestone[];
   stories: UserStory[];
   workItems: WorkItem[];

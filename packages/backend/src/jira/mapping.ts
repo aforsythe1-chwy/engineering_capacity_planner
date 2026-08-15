@@ -16,6 +16,7 @@ export interface JiraMapping {
   projectKey: string;
   /** Specific epic to import; `null` imports every epic in the project. */
   epicKey: string | null;
+  epicScopeMode: 'single' | 'active';
   /** Agile board for sprint discovery; `null` = use the project's first board. */
   boardId: number | null;
   /** Custom field id holding story points, e.g. `customfield_10016`. */
@@ -80,6 +81,7 @@ export function resolveMapping(settings: Setting[], config: JiraConfig): JiraMap
   return {
     projectKey: projectKey!,
     epicKey: pick(SETTING_KEYS.JIRA_EPIC_KEY, null),
+    epicScopeMode: pick(SETTING_KEYS.JIRA_EPIC_SCOPE_MODE, null) === 'single' ? 'single' : 'active',
     boardId,
     storyPointsField: storyPointsField!,
     sprintField: pick(SETTING_KEYS.JIRA_SPRINT_FIELD, null),

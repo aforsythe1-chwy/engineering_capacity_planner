@@ -50,6 +50,10 @@ export interface AppConfig {
    * and Sync in the real app offline. Implies `dataSource: 'jira'`.
    */
   jiraFake: boolean;
+  /** Process-local Jira read-cache lifetime; zero disables reuse. */
+  jiraCacheTtlMs: number;
+  /** Expose cache/network events to the local debug toast. */
+  jiraRequestDebug: boolean;
 }
 
 type Env = Record<string, string | undefined>;
@@ -94,6 +98,8 @@ export function loadConfig(env: Env = process.env): AppConfig {
     seedIfEmpty: bool(env.ECP_SEED_IF_EMPTY, true),
     syntheticSeed: int(env.ECP_SYNTHETIC_SEED, 1),
     jiraFake: bool(env.ECP_JIRA_FAKE, false),
+    jiraCacheTtlMs: Math.max(0, int(env.ECP_JIRA_CACHE_TTL_MS, 5 * 60 * 1000)),
+    jiraRequestDebug: bool(env.ECP_JIRA_REQUEST_DEBUG, false),
     jira: {
       baseUrl: str(env.JIRA_BASE_URL),
       email: str(env.JIRA_EMAIL),

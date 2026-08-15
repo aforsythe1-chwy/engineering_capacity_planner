@@ -21,7 +21,10 @@ export default defineConfig(({ mode }) => {
       // Proxy API calls to the backend so the browser fetches same-origin (no
       // CORS in dev). If the backend is down, the fetch fails and the UI falls
       // back to the bundled sample dataset.
-      proxy: { '/api': { target: apiTarget, changeOrigin: true } },
+      proxy: {
+        '/api': { target: apiTarget, changeOrigin: true },
+        '/health': { target: apiTarget, changeOrigin: true },
+      },
     },
     preview: { port: previewPort },
   };

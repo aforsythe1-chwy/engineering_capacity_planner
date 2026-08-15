@@ -7,6 +7,7 @@ import { pushDatasetToJira } from './push.js';
 export const DEMO_MAPPING: JiraMapping = {
   projectKey: 'CKT',
   epicKey: null,
+  epicScopeMode: 'active',
   boardId: 1,
   storyPointsField: 'customfield_10016',
   sprintField: 'customfield_10020',

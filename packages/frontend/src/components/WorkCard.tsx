@@ -33,6 +33,8 @@ interface TipPos {
 export function WorkCard({ item, assignee, variant, testId, onDragStart }: WorkCardProps) {
   const [tip, setTip] = useState<TipPos | null>(null);
   const done = item.status === 'Done';
+  const missingJiraSprint =
+    variant === 'bag' && item.status === 'In Progress' && item.jiraSprintAssigned === false;
 
   const show = (e: React.MouseEvent): void => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -66,6 +68,15 @@ export function WorkCard({ item, assignee, variant, testId, onDragStart }: WorkC
         <span className="work-card-pts">{item.points}p</span>
       </span>
       <span className="work-card-title">{item.title}</span>
+      {missingJiraSprint && (
+        <span
+          className="work-card-warning"
+          data-testid={`work-card-warning-${item.key}`}
+          title="In Progress in Jira, but no sprint is assigned"
+        >
+          <span aria-hidden="true">⚠</span> In progress · no sprint
+        </span>
+      )}
 
       {tip && (
         <span
@@ -81,6 +92,11 @@ export function WorkCard({ item, assignee, variant, testId, onDragStart }: WorkC
           <span className="work-tooltip-meta">
             {assignee ? `Assignee: ${assignee.name}` : 'Unassigned'}
           </span>
+          {missingJiraSprint && (
+            <span className="work-tooltip-meta work-tooltip-warning">
+              ⚠ In Progress in Jira, but no sprint is assigned.
+            </span>
+          )}
         </span>
       )}
     </span>

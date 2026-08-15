@@ -16,7 +16,7 @@ import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from './config.js';
 const EPS = 1e-9;
 
 /** Red / yellow / green feasibility band (project plan §5). */
-export type Verdict = 'green' | 'yellow' | 'red';
+export type Verdict = 'green' | 'yellow' | 'red' | 'needs-estimates';
 
 export interface ProjectionInput {
   /** The date the projection is made from ("today"). */
@@ -82,6 +82,7 @@ export function remainingPoints(items: readonly WorkItem[]): number {
 export function project(input: ProjectionInput): ProjectionResult {
   const cfg: EngineConfig = { ...DEFAULT_ENGINE_CONFIG, ...input.config };
   const remaining = remainingPoints(input.workItems);
+  const unestimated = input.workItems.some((item) => item.status !== 'Done' && item.isEstimated === false);
 
   const ctx = buildCapacityContext({
     members: input.members,
@@ -111,7 +112,9 @@ export function project(input: ProjectionInput): ProjectionResult {
   }
 
   // --- Buffer + verdict. ---------------------------------------------------
-  const { verdict, reason, bufferWorkingDays } = classify(
+  const { verdict, reason, bufferWorkingDays } = unestimated
+    ? { verdict: 'needs-estimates' as Verdict, bufferWorkingDays: null, reason: 'Remaining work contains unestimated item(s), so the forecast is incomplete.' }
+    : classify(
     projectedDevCompleteDate,
     remaining,
     input,
