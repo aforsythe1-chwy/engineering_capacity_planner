@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type PlannerTab = 'overview' | 'timeline' | 'dependencies' | 'gantt' | 'configuration';
+export type PlannerTab = 'overview' | 'timeline' | 'dependencies' | 'gantt' | 'team' | 'standup' | 'configuration';
 export interface PlannerRoute {
   /** Pages and epic selection are intentionally independent. `epics: []` means all active epics. */
   tab: PlannerTab;
   epics: string[];
+  team: string | null;
   legacy: boolean;
   invalidKeys: string[];
 }
 
-const validTabs = new Set<PlannerTab>(['overview', 'timeline', 'dependencies', 'gantt', 'configuration']);
+const validTabs = new Set<PlannerTab>(['overview', 'timeline', 'dependencies', 'gantt', 'team', 'standup', 'configuration']);
 
-export function parsePlannerRoute(search: string, validEpicKeys: Set<string>): PlannerRoute {
+export function parsePlannerRoute(search: string, validEpicKeys: Set<string>, validTeamIds = new Set<string>()): PlannerRoute {
   const params = new URLSearchParams(search);
   const legacyKey = params.get('epic');
   const rawKeys = (params.get('epics') ?? legacyKey ?? '').split(',').map((key) => key.trim()).filter(Boolean);
@@ -22,8 +23,10 @@ export function parsePlannerRoute(search: string, validEpicKeys: Set<string>): P
   const tabValue = params.get('tab');
   const legacyView = params.has('view');
   const legacyEpicView = params.get('view') === 'epic';
+  const rawTeam = params.get('team');
   return {
     epics,
+    team: rawTeam && validTeamIds.has(rawTeam) ? rawTeam : null,
     // Old portfolio links always mean Overview. Old epic links retain their tab.
     tab: validTabs.has(tabValue as PlannerTab)
       ? tabValue as PlannerTab
@@ -37,11 +40,12 @@ export function routeSearch(route: Omit<PlannerRoute, 'legacy' | 'invalidKeys'>)
   const params = new URLSearchParams();
   if (route.tab !== 'overview') params.set('tab', route.tab);
   if (route.epics.length) params.set('epics', route.epics.join(','));
+  if (route.team) params.set('team', route.team);
   return `?${params.toString()}`;
 }
 
-export function usePlannerRoute(validEpicKeys: Set<string>) {
-  const read = useCallback(() => parsePlannerRoute(window.location.search, validEpicKeys), [validEpicKeys]);
+export function usePlannerRoute(validEpicKeys: Set<string>, validTeamIds = new Set<string>()) {
+  const read = useCallback(() => parsePlannerRoute(window.location.search, validEpicKeys, validTeamIds), [validEpicKeys, validTeamIds]);
   const [route, setRoute] = useState(read);
   useEffect(() => {
     const onPopState = () => setRoute(read());

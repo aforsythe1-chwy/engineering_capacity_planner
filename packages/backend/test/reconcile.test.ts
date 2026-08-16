@@ -57,7 +57,7 @@ const placement = (id: string, workItemKey: string, sprintId: string) => ({
 });
 
 describe('reconcileDataset', () => {
-  it('takes Jira facts wholesale for an initial (empty) database', () => {
+  it('imports Jira facts but keeps newly discovered members inactive', () => {
     const incoming: DomainDataset = {
       ...empty(),
       teams: [team('T', '2026-01-27')],
@@ -71,6 +71,7 @@ describe('reconcileDataset', () => {
     expect(merged.epics).toEqual(incoming.epics);
     expect(merged.workItems).toEqual(incoming.workItems);
     expect(summary.membersAdded).toBe(1);
+    expect(merged.members).toMatchObject([{ id: 'u1', name: 'Ada', active: false }]);
     expect(summary.workItems).toBe(1);
   });
 
@@ -262,7 +263,7 @@ describe('reconcileDataset', () => {
         workItem('CKT-4', 'To Do'), // brand new item
       ],
     };
-    const { changes } = reconcileDataset(current, incoming);
+    const { merged, changes } = reconcileDataset(current, incoming);
     const has = (category: string, entity: string) =>
       changes.some((c) => c.category === category && c.entity === entity);
 
@@ -271,6 +272,7 @@ describe('reconcileDataset', () => {
     expect(has('item-added', 'CKT-4')).toBe(true);
     expect(has('item-removed', 'CKT-2')).toBe(true);
     expect(has('member-added', 'Grace')).toBe(true);
+    expect(merged.members.find((m) => m.id === 'u2')).toMatchObject({ active: false });
     expect(has('sprint-added', '22')).toBe(true);
     // CKT-1 came back Done, so its placement is pulled to free capacity.
     expect(has('placement-pulled', 'CKT-1')).toBe(true);
@@ -341,5 +343,21 @@ describe('reconcileDataset', () => {
     const { merged, summary } = reconcileDataset(current, incoming);
     expect(merged.members.map((m) => m.id).sort()).toEqual(['u1', 'u2']);
     expect(summary.membersAdded).toBe(0);
+  });
+
+  it('preserves local bandwidth history across Jira sync', () => {
+    const current: DomainDataset = {
+      ...empty(),
+      teams: [team('T', '2026-01-27')],
+      members: [member('u1', 'Ada', 12)],
+      bandwidthCheckIns: [{
+        memberId: 'u1', date: '2026-08-14', feeling: 'yellow', note: 'Interrupt load',
+        createdAt: '2026-08-14T15:00:00.000Z', updatedAt: '2026-08-14T15:00:00.000Z',
+      }],
+    };
+    const incoming: DomainDataset = {
+      ...empty(), teams: [team('T', '2026-01-27')], members: [member('u1', 'Ada', 10)],
+    };
+    expect(reconcileDataset(current, incoming).merged.bandwidthCheckIns).toEqual(current.bandwidthCheckIns);
   });
 });

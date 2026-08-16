@@ -8,6 +8,8 @@ import type { JiraClient } from './jira/client.js';
 import { createDemoJiraClient, DEMO_MAPPING } from './jira/demo.js';
 import { CachedJiraClient, JiraRequestCache } from './jira/request-cache.js';
 import { registerConfigRoutes } from './routes/config.js';
+import { registerBandwidthRoutes } from './routes/bandwidth.js';
+import { registerStandupRoutes } from './routes/standup.js';
 import { registerDbRoutes } from './routes/db.js';
 import { registerJiraRoutes } from './routes/jira.js';
 import { registerPlanningRoutes } from './routes/planning.js';
@@ -104,6 +106,8 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
 
   // Mutating Configuration-tab endpoints (project plan §6).
   registerConfigRoutes(app, db);
+  registerBandwidthRoutes(app, db);
+  registerStandupRoutes(app, db, jiraClient, config);
   // Gantt Planner placement endpoints (project plan §6a).
   registerPlanningRoutes(app, db);
   // Jira sync: re-import + reconcile (project plan §7).

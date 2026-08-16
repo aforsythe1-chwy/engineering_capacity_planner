@@ -1,6 +1,11 @@
 import type {
   EpicSme,
   EpicMilestone,
+  BandwidthCheckIn,
+  StandupNote,
+  StandupParticipant,
+  StandupMemberTicketContext,
+  StandupSession,
   Oncall,
   PlannedPlacement,
   Pto,
@@ -10,6 +15,14 @@ import type {
   TeamMember,
   VelocityOverride,
 } from '@ecp/shared';
+
+export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; }
+export const startStandup = (teamId: string, date: string): Promise<StandupAggregate> => request('POST', '/api/standups/start', { teamId, date });
+export const resolveStandupParticipant = (sessionId: string, memberId: string, disposition: 'completed' | 'skipped', expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}`, { disposition, expectedRevision });
+export const finishStandup = (sessionId: string, expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/finish`, { expectedRevision });
+export const createStandupNote = (sessionId: string, body: string, allTeam: boolean, memberIds: string[], expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/notes`, { body, audience: { allTeam, memberIds }, expectedRevision });
+export const getStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets`);
+export const refreshStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets/refresh`);
 
 /**
  * Typed client for the backend Configuration write API (project plan §6). Each
@@ -267,6 +280,13 @@ export const searchJiraUsers = (q?: string): Promise<{ users: JiraUserOption[] }
 export const getCurrentSprintAssignees = (): Promise<JiraCurrentSprintAssignees> =>
   request('GET', '/api/jira/current-sprint-assignees');
 
+export interface JiraBoardStatusDiscovery {
+  boardId: string; boardName: string; source: 'board-configuration' | 'board-issues';
+  statuses: Array<{ id: string; name: string; category: string; columnName: string | null; boardOrder: number; observedIssueCount: number | null }>;
+  warning: string | null;
+}
+export const getJiraBoardStatuses = (): Promise<JiraBoardStatusDiscovery> => request('GET', '/api/jira/board-statuses');
+
 // --- Team cadence ----------------------------------------------------------
 export const updateTeam = (id: string, patch: Partial<Omit<Team, 'id'>>): Promise<Team> =>
   request('PUT', `/api/teams/${encodeURIComponent(id)}`, patch);
@@ -319,6 +339,20 @@ export const createVelocityOverride = (input: {
 }): Promise<VelocityOverride> => request('POST', '/api/velocity-overrides', input);
 export const deleteVelocityOverride = (id: string): Promise<void> =>
   request('DELETE', `/api/velocity-overrides/${encodeURIComponent(id)}`);
+
+// --- Daily bandwidth check-ins --------------------------------------------
+export const listBandwidthCheckIns = (teamId: string, from: string, to: string): Promise<{ checkIns: BandwidthCheckIn[] }> =>
+  request('GET', `/api/bandwidth-check-ins${qs({ teamId, from, to })}`);
+
+export const upsertBandwidthCheckIn = (
+  memberId: string,
+  date: string,
+  input: { feeling: BandwidthCheckIn['feeling']; note?: string | null },
+): Promise<BandwidthCheckIn> =>
+  request('PUT', `/api/bandwidth-check-ins/${encodeURIComponent(memberId)}/${encodeURIComponent(date)}`, input);
+
+export const deleteBandwidthCheckIn = (memberId: string, date: string): Promise<void> =>
+  request('DELETE', `/api/bandwidth-check-ins/${encodeURIComponent(memberId)}/${encodeURIComponent(date)}`);
 
 // --- Epic milestones ("relevant days") -------------------------------------
 export const createMilestone = (

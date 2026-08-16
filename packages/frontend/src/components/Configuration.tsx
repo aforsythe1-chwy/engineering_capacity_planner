@@ -3,22 +3,18 @@ import type { DomainDataset, IsoDate, TeamMember, Weekday } from '@ecp/shared';
 import { effectivePortfolioEpic, globalStringSetting, SETTING_KEYS } from '@ecp/shared';
 import { formatDate } from '../lib/format';
 import { memberColorMap } from '../lib/memberColors';
-import { buildAvailabilityEntries, type AvailabilityEntry, type AvailabilityKind } from '../lib/availability';
 import * as api from '../data/api';
-import { AvailabilityCalendar } from './AvailabilityCalendar';
-import { AvailabilityList } from './AvailabilityList';
-import { AddAvailabilityModal, type NewAvailability } from './AddAvailabilityModal';
 import { MemberAvatar } from './MemberAvatar';
 import { JiraSetupWizard } from './JiraSetupWizard';
 import { SyncLog } from './SyncLog';
 import { DatabaseTools } from './DatabaseTools';
 import { EpicManagementSection } from './EpicManagementSection';
+import { StandupStatusConfiguration } from './StandupStatusConfiguration';
 import type { RuntimeDataSource } from '../data/loadDataset';
 
 interface ConfigurationProps {
   dataset: DomainDataset;
   teamId: string | null;
-  selectedEpicKeys: readonly string[];
   onFilter: (keys: string[]) => void;
   /** True when a live backend is connected; edits are disabled otherwise. */
   editable: boolean;
@@ -68,7 +64,7 @@ function useConfigActions(onReload: () => Promise<void>) {
  * change persists via the backend API and reloads the dataset so the timeline
  * and dependency graph recompute.
  */
-export function Configuration({ dataset, teamId, selectedEpicKeys, onFilter, editable, dataSource, onReload }: ConfigurationProps) {
+export function Configuration({ dataset, teamId, onFilter, editable, dataSource, onReload }: ConfigurationProps) {
   const { run, error, busy } = useConfigActions(onReload);
   const disabled = !editable || busy;
   const team = teamId ? (dataset.teams.find((t) => t.id === teamId) ?? null) : null;
@@ -89,21 +85,16 @@ export function Configuration({ dataset, teamId, selectedEpicKeys, onFilter, edi
         </div>
       )}
 
-      <EpicManagementSection dataset={dataset} editable={editable} selectedEpicKeys={selectedEpicKeys} onFilter={onFilter} onReload={onReload} />
+      <EpicManagementSection dataset={dataset} editable={editable} onFilter={onFilter} onReload={onReload} />
       <KnobsSection dataset={dataset} disabled={disabled} run={run} />
       {team ? <CadenceSection team={team} disabled={disabled} run={run} /> : null}
       {teamId ? (
         <>
           <MembersSection members={members} colors={colors} teamId={teamId} disabled={disabled} run={run} />
-          <ModifiersSection
-            dataset={dataset}
-            members={members}
-            colors={colors}
-            disabled={disabled}
-            editable={editable}
-            run={run}
-            onReload={onReload}
-          />
+          <section className="panel" data-testid="team-availability-link">
+            <div className="section-title"><div><h2>Availability</h2><span className="hint">PTO, on-call, and velocity overrides are managed in the Team workspace.</span></div></div>
+            <a className="btn" href="?tab=team">Open Team availability</a>
+          </section>
         </>
       ) : null}
       <JiraSetupWizard
@@ -115,6 +106,7 @@ export function Configuration({ dataset, teamId, selectedEpicKeys, onFilter, edi
         run={run}
         onReload={onReload}
       />
+      <StandupStatusConfiguration dataset={dataset} disabled={disabled} editable={editable} run={run} />
       <SyncLog
         editable={editable}
         refreshKey={globalStringSetting(dataset.settings, SETTING_KEYS.LAST_SYNCED_AT)}
@@ -422,81 +414,6 @@ function MemberRow({ member, color, disabled, run }: { member: TeamMember; color
         remove
       </button>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Availability — PTO / on-call / velocity overrides, as a calendar + list
-// ---------------------------------------------------------------------------
-function ModifiersSection({ dataset, members, colors, disabled, editable, run, onReload }: {
-  dataset: DomainDataset;
-  members: TeamMember[];
-  colors: Map<string, string>;
-  disabled: boolean;
-  editable: boolean;
-  run: Run;
-  onReload: () => Promise<void>;
-}) {
-  const [view, setView] = useState<'calendar' | 'list'>('calendar');
-  const [adding, setAdding] = useState(false);
-  const entries = useMemo(
-    () => buildAvailabilityEntries(dataset, members, colors),
-    [dataset, members, colors],
-  );
-
-  const onDelete = (entry: AvailabilityEntry) => {
-    const del =
-      entry.kind === 'pto'
-        ? api.deletePto
-        : entry.kind === 'oncall'
-          ? api.deleteOncall
-          : api.deleteVelocityOverride;
-    run(() => del(entry.id));
-  };
-
-  // The modal surfaces its own errors and stays open on failure, so it uses a
-  // throwing add (not the error-swallowing `run`).
-  const onAdd = async (kind: AvailabilityKind, input: NewAvailability) => {
-    if (kind === 'pto') await api.createPto(input);
-    else if (kind === 'oncall') await api.createOncall(input);
-    else await api.createVelocityOverride({ ...input, multiplier: input.multiplier ?? 1 });
-    await onReload();
-  };
-
-  return (
-    <section className="panel">
-      <div className="section-title">
-        <h2>Availability</h2>
-        <div className="section-actions">
-          <div className="subtabs" role="tablist" aria-label="Availability view">
-            <button type="button" role="tab" aria-selected={view === 'calendar'}
-              className={`subtab${view === 'calendar' ? ' active' : ''}`} data-testid="avail-view-calendar"
-              onClick={() => setView('calendar')}>
-              Calendar
-            </button>
-            <button type="button" role="tab" aria-selected={view === 'list'}
-              className={`subtab${view === 'list' ? ' active' : ''}`} data-testid="avail-view-list"
-              onClick={() => setView('list')}>
-              List
-            </button>
-          </div>
-          <button type="button" className="btn primary add-btn" disabled={disabled} data-testid="avail-add"
-            onClick={() => setAdding(true)}>
-            ＋ Add
-          </button>
-        </div>
-      </div>
-
-      {view === 'calendar' ? (
-        <AvailabilityCalendar entries={entries} disabled={disabled} onDelete={onDelete} />
-      ) : (
-        <AvailabilityList entries={entries} disabled={disabled} onDelete={onDelete} />
-      )}
-
-      {adding && editable && (
-        <AddAvailabilityModal members={members} onClose={() => setAdding(false)} onAdd={onAdd} />
-      )}
-    </section>
   );
 }
 

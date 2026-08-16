@@ -54,6 +54,8 @@ export interface AppConfig {
   jiraCacheTtlMs: number;
   /** Expose cache/network events to the local debug toast. */
   jiraRequestDebug: boolean;
+  /** Maximum duration for the targeted Jira refresh used by an active standup. */
+  standupTicketRefreshTimeoutMs: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -100,6 +102,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
     jiraFake: bool(env.ECP_JIRA_FAKE, false),
     jiraCacheTtlMs: Math.max(0, int(env.ECP_JIRA_CACHE_TTL_MS, 5 * 60 * 1000)),
     jiraRequestDebug: bool(env.ECP_JIRA_REQUEST_DEBUG, false),
+    standupTicketRefreshTimeoutMs: Math.max(1_000, int(env.ECP_STANDUP_TICKET_REFRESH_TIMEOUT_MS, 10_000)),
     jira: {
       baseUrl: str(env.JIRA_BASE_URL),
       email: str(env.JIRA_EMAIL),

@@ -1,5 +1,5 @@
 import type { JiraClient } from './client.js';
-import type { JiraBoard, JiraCreatedIssue, JiraCreateIssueInput, JiraCreateLinkInput, JiraField, JiraIssue, JiraIssueLinkType, JiraSearchResult, JiraSprint, JiraUser } from './types.js';
+import type { JiraBoard, JiraBoardConfiguration, JiraCreatedIssue, JiraCreateIssueInput, JiraCreateLinkInput, JiraField, JiraIssue, JiraIssueLinkType, JiraSearchResult, JiraSprint, JiraStatus, JiraUser } from './types.js';
 
 export type JiraRequestCacheOutcome = 'network' | 'cache-hit' | 'coalesced' | 'error';
 export interface JiraRequestCacheEvent { at: string; operation: string; outcome: JiraRequestCacheOutcome; durationMs?: number }
@@ -38,6 +38,8 @@ export class CachedJiraClient implements JiraClient {
   getIssue(idOrKey: string, fields?: string[]): Promise<JiraIssue> { return this.cache.read('getIssue', { idOrKey, fields }, () => this.client.getIssue(idOrKey, fields)); }
   listBoards(projectKeyOrId?: string, name?: string): Promise<JiraBoard[]> { return this.cache.read('listBoards', { projectKeyOrId, name }, () => this.client.listBoards(projectKeyOrId, name)); }
   listBoardIssues(boardId: number, fields: string[]): Promise<JiraIssue[]> { return this.cache.read('listBoardIssues', { boardId, fields: [...fields].sort() }, () => this.client.listBoardIssues(boardId, fields)); }
+  getBoardConfiguration(boardId: number): Promise<JiraBoardConfiguration> { return this.cache.read('getBoardConfiguration', boardId, () => this.client.getBoardConfiguration(boardId)); }
+  listStatuses(): Promise<JiraStatus[]> { return this.cache.read('listStatuses', null, () => this.client.listStatuses()); }
   listSprints(boardId: number): Promise<JiraSprint[]> { return this.cache.read('listSprints', boardId, () => this.client.listSprints(boardId)); }
   async createIssue(input: JiraCreateIssueInput): Promise<JiraCreatedIssue> { const result = await this.client.createIssue(input); this.cache.clear(); return result; }
   async createIssueLink(input: JiraCreateLinkInput): Promise<void> { await this.client.createIssueLink(input); this.cache.clear(); }

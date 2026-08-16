@@ -1,4 +1,5 @@
 import type { JiraClient } from './client.js';
+import type { JiraBoardConfiguration, JiraStatus } from './types.js';
 import type {
   JiraBoard,
   JiraCreatedIssue,
@@ -177,6 +178,14 @@ export class HttpJiraClient implements JiraClient {
       if (page.total !== undefined && startAt >= page.total) return issues;
       if (values.length < maxResults) return issues;
     }
+  }
+
+  getBoardConfiguration(boardId: number): Promise<JiraBoardConfiguration> {
+    return this.request('GET', `/rest/agile/1.0/board/${boardId}/configuration`);
+  }
+
+  listStatuses(): Promise<JiraStatus[]> {
+    return this.request('GET', '/rest/api/3/status');
   }
 
   createIssue(input: JiraCreateIssueInput): Promise<JiraCreatedIssue> {

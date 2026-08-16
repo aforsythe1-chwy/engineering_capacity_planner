@@ -65,6 +65,19 @@ export interface TeamMember {
   avatarUrl?: string | null;
 }
 
+/** A person's self-reported workload signal for one local calendar day. */
+export type BandwidthFeeling = 'red' | 'yellow' | 'green' | 'purple';
+
+/** One mutable daily check-in per member. Missing is intentionally not Green. */
+export interface BandwidthCheckIn {
+  memberId: string;
+  date: IsoDate;
+  feeling: BandwidthFeeling;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * A time-boxed adjustment to a member's velocity (ramping hire, reduced week).
  * Expressed as a multiplier against {@link TeamMember.baseVelocity}.
@@ -295,6 +308,71 @@ export interface Setting {
 }
 
 // ---------------------------------------------------------------------------
+// Standup sessions (kept outside DomainDataset; loaded through focused APIs)
+// ---------------------------------------------------------------------------
+
+export type StandupStatus = 'active' | 'post_standup' | 'completed';
+export type StandupParticipantDisposition = 'pending' | 'completed' | 'skipped';
+
+export interface StandupSession {
+  id: string;
+  teamId: string;
+  date: IsoDate;
+  sprintId: string | null;
+  sprintName: string | null;
+  status: StandupStatus;
+  startedAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  revision: number;
+}
+
+export interface StandupParticipant {
+  sessionId: string;
+  memberId: string;
+  memberName: string;
+  position: number;
+  disposition: StandupParticipantDisposition;
+  resolvedAt: string | null;
+}
+
+export interface StandupNote {
+  id: string;
+  sessionId: string;
+  body: string;
+  allTeam: boolean;
+  memberIds: string[];
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StandupTicket {
+  key: string;
+  /** Direct Jira issue URL when this standup is connected to Jira. */
+  url: string | null;
+  summary: string;
+  status: string;
+  /** Jira's durable status identity; absent in historical ticket snapshots. */
+  statusId?: string | null;
+  statusCategory: string;
+  assigneeAccountId: string | null;
+  assigneeName: string | null;
+  parentKey: string | null;
+  parentSummary: string | null;
+}
+
+export interface StandupMemberTicketContext {
+  memberId: string;
+  capturedAt: string;
+  source: 'jira' | 'snapshot';
+  freshness: 'fresh' | 'stale' | 'unavailable';
+  tickets: StandupTicket[];
+  errorMessage: string | null;
+  truncated: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Dataset
 // ---------------------------------------------------------------------------
 
@@ -306,6 +384,8 @@ export interface Setting {
 export interface DomainDataset {
   teams: Team[];
   members: TeamMember[];
+  /** Local, human-authored history; never sourced from Jira. */
+  bandwidthCheckIns?: BandwidthCheckIn[];
   velocityOverrides: VelocityOverride[];
   pto: Pto[];
   oncall: Oncall[];

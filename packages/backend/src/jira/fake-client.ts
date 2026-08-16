@@ -1,6 +1,7 @@
 import type { JiraClient } from './client.js';
 import type {
   JiraBoard,
+  JiraBoardConfiguration,
   JiraCreatedIssue,
   JiraCreateIssueInput,
   JiraCreateLinkInput,
@@ -102,6 +103,8 @@ export interface FakeJiraOptions {
   fields?: JiraField[];
   linkTypes?: JiraIssueLinkType[];
   boards?: JiraBoard[];
+  boardConfigurations?: Record<number, JiraBoardConfiguration>;
+  statuses?: JiraStatus[];
   /** Extra directory users searchable by `searchUsers` (beyond issue assignees). */
   users?: JiraUser[];
   currentUser?: JiraUser;
@@ -122,6 +125,8 @@ export class FakeJiraClient implements JiraClient {
   private readonly fields: JiraField[];
   private readonly linkTypes: JiraIssueLinkType[];
   private readonly boards: JiraBoard[];
+  private readonly boardConfigurations: Record<number, JiraBoardConfiguration>;
+  private readonly statuses: JiraStatus[];
   private readonly directoryUsers: JiraUser[];
   private readonly currentUser: JiraUser;
   private readonly issues = new Map<string, JiraIssue>();
@@ -135,6 +140,18 @@ export class FakeJiraClient implements JiraClient {
     this.boards = options.boards ?? [
       { id: 1, name: 'Board', type: 'scrum', location: { projectKey: 'CKT' } },
     ];
+    this.statuses = options.statuses ?? [
+      { id: '1', name: 'To Do', statusCategory: { key: 'new', name: 'To Do' } },
+      { id: '2', name: 'In Progress', statusCategory: { key: 'indeterminate', name: 'In Progress' } },
+      { id: '3', name: 'Done', statusCategory: { key: 'done', name: 'Done' } },
+    ];
+    this.boardConfigurations = options.boardConfigurations ?? Object.fromEntries(this.boards.map((board) => [board.id, {
+      columnConfig: { columns: [
+        { name: 'To Do', statuses: [{ id: '1' }] },
+        { name: 'In Progress', statuses: [{ id: '2' }] },
+        { name: 'Done', statuses: [{ id: '3' }] },
+      ] },
+    }]));
     this.directoryUsers = options.users ?? [];
     this.currentUser = options.currentUser ?? DEFAULT_CURRENT_USER;
   }
@@ -280,6 +297,17 @@ export class FakeJiraClient implements JiraClient {
     return [...this.issues.values()]
       .filter((issue) => !projectKey || this.projectKeyOf(issue.key) === projectKey)
       .map((issue) => ({ id: issue.id, key: issue.key, fields: project(issue.fields, fields) }));
+  }
+
+  async getBoardConfiguration(boardId: number): Promise<JiraBoardConfiguration> {
+    const configuration = this.boardConfigurations[boardId];
+    if (!configuration) throw new Error(`Fake Jira: board ${boardId} not found`);
+    return structuredClone(configuration);
+  }
+
+  async listStatuses(): Promise<JiraStatus[]> {
+    const observed = [...this.issues.values()].map((issue) => issue.fields.status).filter((status): status is JiraStatus => Boolean(status));
+    return [...new Map([...this.statuses, ...observed].map((status) => [status.id ?? status.name, structuredClone(status)])).values()];
   }
 
   // --- Write ---------------------------------------------------------------

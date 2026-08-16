@@ -7,7 +7,6 @@ import { MemberAvatar } from './MemberAvatar';
 type Props = {
   dataset: DomainDataset;
   editable: boolean;
-  selectedEpicKeys: readonly string[];
   onFilter: (keys: string[]) => void;
   onReload: () => Promise<void>;
 };
@@ -23,20 +22,11 @@ export function rankLocal<T>(items: readonly T[], query: string, text: (item: T)
   }).filter((entry) => entry.score !== Number.POSITIVE_INFINITY).sort((a, b) => a.score - b.score || text(a.item).localeCompare(text(b.item))).map((entry) => entry.item);
 }
 
-export function EpicManagementSection({ dataset, editable, selectedEpicKeys, onFilter, onReload }: Props) {
-  const selectedEpicKey = selectedEpicKeys.length === 1 ? selectedEpicKeys[0] ?? null : null;
-  const [expanded, setExpanded] = useState<string | null>(selectedEpicKey);
-  const priorSelectedEpicKey = useRef<string | null>(selectedEpicKey);
+export function EpicManagementSection({ dataset, editable, onFilter, onReload }: Props) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Auto-open when the route's selected epic changes, but do not reopen after
-  // the user deliberately closes the dialog for the same selection.
-  useEffect(() => {
-    if (selectedEpicKey === priorSelectedEpicKey.current) return;
-    priorSelectedEpicKey.current = selectedEpicKey;
-    setExpanded(selectedEpicKey);
-  }, [selectedEpicKey]);
   const mutate = async (key: string, fn: () => Promise<unknown>) => {
     setBusyKey(key); setError(null);
     try { await fn(); await onReload(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusyKey(null); }

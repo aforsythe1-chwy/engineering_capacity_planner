@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS oncall (
   note       TEXT
 );
 
+-- One self-reported workload signal per member and local calendar day. This is
+-- intentionally local planning history, not imported from Jira.
+CREATE TABLE IF NOT EXISTS bandwidth_check_in (
+  member_id     TEXT NOT NULL REFERENCES team_member(id) ON DELETE RESTRICT,
+  check_in_date TEXT NOT NULL,
+  feeling       TEXT NOT NULL CHECK(feeling IN ('red', 'yellow', 'green', 'purple')),
+  note          TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (member_id, check_in_date)
+);
+
 CREATE TABLE IF NOT EXISTS epic (
   key     TEXT PRIMARY KEY,
   title   TEXT NOT NULL,
@@ -163,7 +175,65 @@ CREATE TABLE IF NOT EXISTS sync_log (
   changes   TEXT NOT NULL
 );
 
+-- Standup history is intentionally separate from DomainDataset replacement.
+CREATE TABLE IF NOT EXISTS standup_session (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES team(id) ON DELETE RESTRICT,
+  standup_date TEXT NOT NULL,
+  sprint_id TEXT,
+  sprint_name TEXT,
+  status TEXT NOT NULL CHECK(status IN ('active', 'post_standup', 'completed')),
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+  final_schema_version INTEGER,
+  final_snapshot_json TEXT,
+  UNIQUE(team_id, standup_date)
+);
+
+CREATE TABLE IF NOT EXISTS standup_participant (
+  session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE CASCADE,
+  member_id TEXT NOT NULL REFERENCES team_member(id) ON DELETE RESTRICT,
+  member_name TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  disposition TEXT NOT NULL DEFAULT 'pending' CHECK(disposition IN ('pending', 'completed', 'skipped')),
+  resolved_at TEXT,
+  PRIMARY KEY(session_id, member_id),
+  UNIQUE(session_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS standup_note (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  all_team INTEGER NOT NULL DEFAULT 0 CHECK(all_team IN (0, 1)),
+  position INTEGER NOT NULL CHECK(position >= 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(session_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS standup_note_member (
+  note_id TEXT NOT NULL REFERENCES standup_note(id) ON DELETE CASCADE,
+  member_id TEXT NOT NULL REFERENCES team_member(id) ON DELETE RESTRICT,
+  PRIMARY KEY(note_id, member_id)
+);
+
+CREATE TABLE IF NOT EXISTS standup_context_snapshot (
+  session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE CASCADE,
+  scope_kind TEXT NOT NULL CHECK(scope_kind IN ('global', 'member')),
+  scope_key TEXT NOT NULL,
+  captured_at TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('jira', 'local', 'snapshot')),
+  fetch_status TEXT NOT NULL CHECK(fetch_status IN ('fresh', 'stale', 'unavailable')),
+  error_message TEXT,
+  payload_json TEXT NOT NULL,
+  PRIMARY KEY(session_id, scope_kind, scope_key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_member_team       ON team_member(team_id);
+CREATE INDEX IF NOT EXISTS idx_bandwidth_check_in_date ON bandwidth_check_in(check_in_date);
 CREATE INDEX IF NOT EXISTS idx_story_epic         ON user_story(epic_key);
 CREATE INDEX IF NOT EXISTS idx_work_item_story    ON work_item(story_key);
 CREATE INDEX IF NOT EXISTS idx_work_item_assignee ON work_item(assignee_id);
@@ -174,12 +244,15 @@ CREATE INDEX IF NOT EXISTS idx_dep_blocked        ON dependency(blocked_item_key
 CREATE INDEX IF NOT EXISTS idx_sprint_team        ON sprint(team_id);
 CREATE INDEX IF NOT EXISTS idx_placement_sprint   ON planned_placement(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_sync_log_time       ON sync_log(synced_at);
+CREATE INDEX IF NOT EXISTS idx_standup_session_team_date ON standup_session(team_id, standup_date);
+CREATE INDEX IF NOT EXISTS idx_standup_participant_session ON standup_participant(session_id, position);
 `;
 
 /** Order tables must be inserted into to satisfy foreign keys. */
 export const INSERT_ORDER = [
   'team',
   'team_member',
+  'bandwidth_check_in',
   'velocity_override',
   'pto',
   'oncall',

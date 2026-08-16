@@ -34,8 +34,13 @@ export interface JiraStatusCategory {
 }
 
 export interface JiraStatus {
+  id?: string;
   name: string;
   statusCategory: JiraStatusCategory;
+}
+
+export interface JiraBoardConfiguration {
+  columnConfig: { columns: Array<{ name: string; statuses: Array<{ id: string }> }> };
 }
 
 export interface JiraUser {

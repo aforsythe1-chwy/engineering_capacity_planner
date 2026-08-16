@@ -78,6 +78,18 @@ describe('GET /api/jira/sample', () => {
   });
 });
 
+describe('GET /api/jira/board-statuses', () => {
+  it('returns configured board statuses in column order', async () => {
+    const jira = await seedFakeBoard();
+    app = await jiraServer(jira);
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { jira_board_id: '1', jira_board_name: 'Board' } });
+    const response = await app.inject({ method: 'GET', url: '/api/jira/board-statuses' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ boardId: '1', source: 'board-configuration' });
+    expect(response.json().statuses.map((status: any) => status.id)).toEqual(['1', '2', '3']);
+  });
+});
+
 describe('GET /api/jira/ticket', () => {
   /** A board with two linked work items (CKT-4 is blocked by CKT-3). */
   async function seedLinkedBoard(): Promise<FakeJiraClient> {

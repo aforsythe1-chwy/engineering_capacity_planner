@@ -69,8 +69,11 @@ describe('POST /api/sync', () => {
     expect(data.sprints[0].id).toBe('21');
     const lastSynced = data.settings.find((s: any) => s.key === 'last_synced_at');
     expect(JSON.parse(lastSynced.value)).toBe(res.json().syncedAt);
-    // The assignee links onto a member and the work item points at it.
-    expect(data.workItems[0].assigneeId).toBe(data.members.find((m: any) => m.name === 'Ada').id);
+    // The assignee links onto a discovered, inactive member. A manager must
+    // explicitly activate them before they contribute capacity.
+    const ada = data.members.find((m: any) => m.name === 'Ada');
+    expect(data.workItems[0].assigneeId).toBe(ada.id);
+    expect(ada.active).toBe(false);
   });
 
   it('preserves a Gantt placement across a re-sync', async () => {

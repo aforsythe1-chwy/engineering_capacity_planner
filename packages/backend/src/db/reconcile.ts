@@ -48,8 +48,9 @@ export interface ReconcileResult {
  * Placement upkeep on sync: a placement is dropped if its work item vanished
  * from Jira or its sprint no longer exists, and a work item that comes back
  * `Done` is auto-pulled from its slot (a finished ticket needs no capacity
- * reservation). Members accrete — a Jira assignee seeds a member, but a member
- * with no current assignments is kept (they carry PTO / velocity config).
+ * reservation). Jira-discovered people are added as inactive so only a manager
+ * can make them part of the active team; a member with no current assignments
+ * is kept (they carry PTO / velocity config).
  *
  * Pure and deterministic (no DB, no clock): the caller persists `merged` with
  * the usual transactional {@link import('./persist.js').writeDataset}.
@@ -74,7 +75,7 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
   //     PTO/on-call; Jira only refreshes the display name. A member the user
   //     set up by hand and linked to a Jira account (jiraAccountId) absorbs the
   //     matching assignee instead of spawning a duplicate. Unmatched assignees
-  //     are added with their imported defaults.
+  //     are retained as inactive until a manager explicitly activates them.
   const mergedMembers: TeamMember[] = current.members.map((m) => ({ ...m }));
   const byAccount = new Map<string, TeamMember>();
   for (const m of mergedMembers) {
@@ -94,12 +95,12 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
       if (!local.jiraAccountId) local.jiraAccountId = account; // backfill the link
       accountToMemberId.set(account, local.id);
     } else {
-      const added: TeamMember = { ...inc, jiraAccountId: account };
+      const added: TeamMember = { ...inc, jiraAccountId: account, active: false };
       mergedMembers.push(added);
       byAccount.set(account, added);
       accountToMemberId.set(account, added.id);
       membersAdded += 1;
-      changes.push({ category: 'member-added', entity: added.name, detail: `New teammate ${added.name} discovered from Jira` });
+      changes.push({ category: 'member-added', entity: added.name, detail: `Inactive teammate ${added.name} discovered from Jira` });
     }
   }
   const memberIds = new Set(mergedMembers.map((m) => m.id));
@@ -246,6 +247,7 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
   const pto = current.pto.filter((p) => memberIds.has(p.memberId));
   const oncall = current.oncall.filter((o) => memberIds.has(o.memberId));
   const velocityOverrides = current.velocityOverrides.filter((v) => memberIds.has(v.memberId));
+  const bandwidthCheckIns = (current.bandwidthCheckIns ?? []).filter((entry) => memberIds.has(entry.memberId));
 
   // --- Settings: union by identity, local edits win; add any new defaults.
   const settingKey = (s: { key: string; scope: string; scopeId: string | null }) =>
@@ -262,6 +264,7 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
     velocityOverrides,
     pto,
     oncall,
+    bandwidthCheckIns,
     epics: allEpics,
     portfolioEpics: current.portfolioEpics,
     epicSmes: (current.epicSmes ?? []).filter((sme) => epicKeys.has(sme.epicKey) && memberIds.has(sme.memberId)),

@@ -183,9 +183,10 @@ test.describe('Configuration tab', () => {
     await expect(page.locator('.config-row.gating')).toHaveCount(1);
   });
 
-  test('availability has calendar + list views with member avatars', async ({ page }) => {
+  test('Team availability has calendar + list views with member avatars', async ({ page }) => {
     await page.goto('/');
-    await page.getByTestId('tab-configuration').click();
+    await page.getByTestId('tab-team').click();
+    await page.getByRole('tab', { name: 'Availability' }).click();
 
     // Calendar view renders bands from the fixture, each with a member avatar.
     const calendar = page.getByTestId('availability-calendar');

@@ -28,6 +28,7 @@ import type {
 import { diffDays, SETTING_KEYS } from '@ecp/shared';
 import type { Db } from './database.js';
 import { badRequest, conflict, notFound } from '../http-error.js';
+import { memberHasBandwidthHistory } from './bandwidth.js';
 
 // ---------------------------------------------------------------------------
 // Validation helpers
@@ -213,6 +214,7 @@ const EDITABLE_SETTINGS: Record<string, (value: unknown, key: string) => unknown
   [SETTING_KEYS.JIRA_BOARD_NAME]: nullableString,
   [SETTING_KEYS.JIRA_SPRINT_FIELD]: nullableString,
   [SETTING_KEYS.JIRA_LABELS_FIELD]: nullableString,
+  [SETTING_KEYS.STANDUP_STATUS_PRESENTATION]: standupStatusPresentationSetting,
 };
 
 /** Epic-scoped settings the Configuration UI may edit. */
@@ -225,6 +227,49 @@ function nullableString(value: unknown, field: string): string | null {
   if (value === null) return null;
   if (typeof value !== 'string') throw badRequest(`${field} must be a string or null`);
   return value;
+}
+
+function standupStatusPresentationSetting(value: unknown, field: string): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest(`${field} must be an object`);
+  const doc = value as Record<string, unknown>;
+  if (Object.keys(doc).some((key) => key !== 'version' && key !== 'boards') || doc.version !== 1 || !Array.isArray(doc.boards)) {
+    throw badRequest(`${field} must be a version 1 status presentation document`);
+  }
+  if (doc.boards.length > 20) throw badRequest(`${field}.boards may contain at most 20 boards`);
+  const boardIds = new Set<string>();
+  const boards = doc.boards.map((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw badRequest(`${field}.boards[${index}] must be an object`);
+    const board = raw as Record<string, unknown>;
+    if (Object.keys(board).some((key) => !['boardId', 'boardName', 'entries'].includes(key)) || !Array.isArray(board.entries)) throw badRequest(`${field}.boards[${index}] has unknown or invalid fields`);
+    const boardId = boundedText(board.boardId, `${field}.boards[${index}].boardId`);
+    const boardName = boundedText(board.boardName, `${field}.boards[${index}].boardName`);
+    if (boardIds.has(boardId)) throw badRequest(`${field} contains duplicate board IDs`);
+    boardIds.add(boardId);
+    if (board.entries.length > 100) throw badRequest(`${field}.boards[${index}].entries may contain at most 100 statuses`);
+    const statusIds = new Set<string>();
+    const entries = board.entries.map((entryRaw, entryIndex) => {
+      if (!entryRaw || typeof entryRaw !== 'object' || Array.isArray(entryRaw)) throw badRequest(`${field}.boards[${index}].entries[${entryIndex}] must be an object`);
+      const entry = entryRaw as Record<string, unknown>;
+      if (Object.keys(entry).some((key) => !['statusId', 'sourceName', 'sourceCategory', 'sourceColumnName', 'friendlyName'].includes(key))) throw badRequest(`${field}.boards[${index}].entries[${entryIndex}] has unknown fields`);
+      const statusId = boundedText(entry.statusId, `${field}.boards[${index}].entries[${entryIndex}].statusId`);
+      const sourceName = boundedText(entry.sourceName, `${field}.boards[${index}].entries[${entryIndex}].sourceName`);
+      const sourceCategory = boundedText(entry.sourceCategory, `${field}.boards[${index}].entries[${entryIndex}].sourceCategory`);
+      const friendlyName = boundedText(entry.friendlyName, `${field}.boards[${index}].entries[${entryIndex}].friendlyName`);
+      const sourceColumnName = entry.sourceColumnName === null ? null : boundedText(entry.sourceColumnName, `${field}.boards[${index}].entries[${entryIndex}].sourceColumnName`);
+      if (statusIds.has(statusId)) throw badRequest(`${field} contains duplicate status IDs`);
+      statusIds.add(statusId);
+      return { statusId, sourceName, sourceCategory, sourceColumnName, friendlyName };
+    });
+    return { boardId, boardName, entries };
+  });
+  return { version: 1, boards };
+}
+
+function boundedText(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw badRequest(`${field} must be a non-empty string`);
+  const trimmed = value.trim();
+  if (trimmed.length > 100) throw badRequest(`${field} must be at most 100 characters`);
+  return trimmed;
 }
 
 function booleanSetting(value: unknown, field: string): boolean {
@@ -431,6 +476,9 @@ export function updateMember(
  * items they were assigned to become unassigned (FK ON DELETE SET NULL). */
 export function deleteMember(db: Db, id: string): void {
   requireMember(db, id);
+  if (memberHasBandwidthHistory(db, id)) {
+    throw conflict('Cannot delete a member with bandwidth check-in history; deactivate the member instead.');
+  }
   db.transaction(() => {
     db.prepare('DELETE FROM team_member WHERE id = ?').run(id);
     // ON DELETE CASCADE removes expertise entries. Compact every affected list

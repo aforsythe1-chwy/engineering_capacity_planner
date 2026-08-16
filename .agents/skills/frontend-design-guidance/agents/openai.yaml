@@ -1,0 +1,4 @@
+interface:
+  display_name: "Planner Frontend Design"
+  short_description: "Keep planner UI cohesive and polished"
+  default_prompt: "Use $frontend-design-guidance to design or review this planner UI change."

@@ -54,7 +54,28 @@ export const SETTING_KEYS = {
    * Drives the top-nav Sync button's freshness color; `null` until first sync.
    */
   LAST_SYNCED_AT: 'last_synced_at',
+  /** Board-specific labels and order used only by the Standup ticket display. */
+  STANDUP_STATUS_PRESENTATION: 'standup_status_presentation',
 } as const;
+
+export interface StandupStatusPresentationEntry {
+  statusId: string;
+  sourceName: string;
+  sourceCategory: string;
+  sourceColumnName: string | null;
+  friendlyName: string;
+}
+
+export interface StandupStatusPresentationBoard {
+  boardId: string;
+  boardName: string;
+  entries: StandupStatusPresentationEntry[];
+}
+
+export interface StandupStatusPresentationSetting {
+  version: 1;
+  boards: StandupStatusPresentationBoard[];
+}
 
 /** Default cadence values (project plan §4, decision #1). */
 export const CADENCE_DEFAULTS = {

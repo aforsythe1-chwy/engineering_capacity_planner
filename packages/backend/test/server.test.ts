@@ -116,6 +116,49 @@ describe('Configuration write API', () => {
   });
 });
 
+describe('Bandwidth check-in API', () => {
+  it('upserts, lists, and clears one member/day check-in', async () => {
+    app = await buildServer({ dbPath: ':memory:' });
+    const dataset = (await app.inject({ method: 'GET', url: '/api/dataset' })).json();
+    const memberId = dataset.members[0].id;
+    const teamId = dataset.members[0].teamId;
+    const date = '2026-08-14';
+
+    const created = await app.inject({
+      method: 'PUT', url: `/api/bandwidth-check-ins/${memberId}/${date}`,
+      payload: { feeling: 'yellow', note: 'Interrupt load is high' },
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({ memberId, date, feeling: 'yellow', note: 'Interrupt load is high' });
+    const createdAt = created.json().createdAt;
+
+    const edited = await app.inject({
+      method: 'PUT', url: `/api/bandwidth-check-ins/${memberId}/${date}`,
+      payload: { feeling: 'red', note: '  ' },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json()).toMatchObject({ feeling: 'red', note: null, createdAt });
+
+    const listed = await app.inject({ method: 'GET', url: `/api/bandwidth-check-ins?teamId=${teamId}&from=2026-08-01&to=2026-08-31` });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().checkIns).toHaveLength(1);
+
+    const cleared = await app.inject({ method: 'DELETE', url: `/api/bandwidth-check-ins/${memberId}/${date}` });
+    expect(cleared.statusCode).toBe(204);
+    expect((await app.inject({ method: 'GET', url: `/api/bandwidth-check-ins?teamId=${teamId}&from=2026-08-01&to=2026-08-31` })).json().checkIns).toEqual([]);
+  });
+
+  it('validates check-ins and prevents deleting members with history', async () => {
+    app = await buildServer({ dbPath: ':memory:' });
+    const memberId = (await app.inject({ method: 'GET', url: '/api/dataset' })).json().members[0].id;
+    const bad = await app.inject({ method: 'PUT', url: `/api/bandwidth-check-ins/${memberId}/2026-02-30`, payload: { feeling: 'blue' } });
+    expect(bad.statusCode).toBe(400);
+    await app.inject({ method: 'PUT', url: `/api/bandwidth-check-ins/${memberId}/2026-08-14`, payload: { feeling: 'green' } });
+    const removeMember = await app.inject({ method: 'DELETE', url: `/api/members/${memberId}` });
+    expect(removeMember.statusCode).toBe(409);
+  });
+});
+
 describe('Database snapshot + import API', () => {
   let dir: string | undefined;
 

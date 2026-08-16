@@ -1,9 +1,15 @@
-# Daily Bandwidth Check-ins and Trend Calendar — Durable Implementation Plan
+# Team Workspace, Daily Bandwidth Check-ins, and Calendar — Durable Implementation Plan
 
-**Status:** Proposed  
-**Created:** 2026-08-15  
-**Scope:** daily engineer check-ins, optional notes, durable local history, team and individual
-calendar analysis, API contracts, synchronization safety, accessibility, and verification  
+**Status:** Proposed
+
+**Created:** 2026-08-15
+
+**Last updated:** 2026-08-15 — separated Standup data collection from Team calendar analysis
+
+**Scope:** a new Standup page, a Team calendar page with shared controls, daily engineer check-ins, existing
+availability data, optional notes, durable local history, API contracts, accessibility, and
+verification
+
 **Constraints:** plan only; no Spec Kit/SDD; preserve the flat planner and the invariants in
 `planner-product-constitution.md`
 
@@ -17,10 +23,16 @@ per calendar day:
 - **Green — I'd be happy if I had this amount of work all the time**
 - **Purple — I don't have enough work to do**
 
-Each check-in may include an optional note. A new peer **Bandwidth** page lets the user capture the
-day's answers quickly, review any day in detail, filter to an engineer, and analyze trends in a
-month calendar. The calendar can color days by the team's average reported signal or by the number
-of reports in a selected color, including red-count hotspot analysis.
+Each check-in may include an optional note. Add a peer **Standup** page as the focused daily
+collection workflow. Keep **Team** as the calendar-analysis home for people and team signals. Team
+has shared team, engineer, and month controls above a primary view switch. The first two views are
+**Bandwidth** and **Availability**, with an explicit extension point for future team-calendar data.
+
+Standup lets the user capture the day's answers quickly. Team's Bandwidth calendar lets the user
+review trends and filter to an engineer. Its calendar can color days by the team's average reported signal or
+by the number of reports in a selected color, including Red-count hotspot analysis. Availability
+reuses the existing PTO, on-call, and velocity-override data so the same Team page can answer who is
+available and how workload feels without conflating the two signals.
 
 The feature is an observational planning signal. In the first release it does **not** change base
 velocity, weekly capacity, epic forecasts, health verdicts, or Gantt placement. Any future use of
@@ -64,12 +76,17 @@ The UI and database-tools documentation must state that exported databases and s
 bandwidth notes. If the application ever becomes hosted or multi-user, authorization, retention,
 and audit policy are prerequisites rather than follow-up polish.
 
-### 2.4 Bandwidth is team-scoped and independent of epic filtering
+### 2.4 Team is a peer workspace and is independent of epic filtering
 
-Add **Bandwidth** as a peer to Overview, Timeline, Dependencies, Gantt Planner, and Configuration.
-The existing epic filter remains selected when entering or leaving the page, but it does not filter
-people or check-ins. Show the same kind of truth-preserving context used by other shared-capacity
-pages: bandwidth includes the selected team regardless of which epic is visible.
+Add **Team** as a peer to Overview, Timeline, Dependencies, Gantt Planner, and Configuration. The
+page contains team-data views rather than becoming a second navigation hierarchy. Use a segmented
+control or compact view switcher labeled **Show** with initial values **Bandwidth** and
+**Availability**. These are modes within Team, not new primary tabs and not URL-level child apps.
+
+The existing epic filter remains selected when entering or leaving Team, but it does not filter
+people, check-ins, PTO, on-call, or velocity overrides. Show the same kind of truth-preserving
+context used by other shared-capacity pages: Team includes the selected team's whole signal
+regardless of which epic is visible.
 
 If the dataset has more than one team, expose a separate team selector and persist `team` in the
 query string. Do not infer or change the selected team from the epic filter. With one team, omit the
@@ -79,10 +96,15 @@ team and is canonicalized.
 This satisfies the product constitution:
 
 - there is still one navigation level;
-- selecting an epic never navigates to or changes Bandwidth;
+- selecting an epic never navigates to or changes the Team page or its calendar data;
 - the all-active state remains useful;
-- the page reports team-wide truth rather than an epic-owned capacity view;
+- the page reports team-wide truth rather than an epic-owned roster, availability, or bandwidth
+  view;
 - page, epic filter, and optional team scope remain independent URL state.
+
+The product constitution is amended alongside this plan to list Team as a peer page and clarify
+that team-owned signals are intentionally not epic-filtered. That amendment records the explicit
+product-direction decision rather than treating Team as an implementation exception.
 
 ### 2.5 Keep history when roster status changes
 
@@ -133,24 +155,33 @@ weekends, holidays, PTO, on-call days, or missing reports.
 
 ## 3. Target user experience
 
-### 3.1 Bandwidth page header
+### 3.1 Team page shell and shared controls
 
-The page header contains:
+The Team page header contains:
 
-- title and non-performance framing;
+- title and a short explanation that this is the team's operational calendar;
 - explicit team selector only when multiple teams exist;
-- current response coverage for the selected entry date;
+- **All team** / individual engineer filter;
 - **Today** shortcut and selected-date control;
-- aggregate-mode switch: **Average signal** / **Count by feeling**;
-- feeling selector shown only in count mode.
+- a primary **Show: Bandwidth / Availability** segmented control;
+- mode-specific controls in a stable secondary row.
 
 The page uses the shared `AppShell`. The global epic picker may remain visible for consistency, but
-copy below the header makes clear that the epic filter does not alter bandwidth results.
+copy below the header makes clear that the epic filter does not alter Team data. Team, member, month,
+and selected date remain stable when switching between Bandwidth and Availability so a user can
+compare the same people and period without rebuilding context.
 
-### 3.2 Standup entry panel
+In Bandwidth mode, the secondary controls contain **Average signal / Count by feeling**, the feeling
+selector used in count mode, and current response coverage. In Availability mode, they contain
+PTO, On-call, and Velocity visibility toggles plus Calendar/List presentation when the list remains
+useful.
 
-Place a compact **Today's check-in** panel before the history calendar. It should be usable while a
-standup is in progress without opening a modal for each person.
+### 3.2 Standup entry screen
+
+Standup is a dedicated peer page, not a panel on Team. It contains the compact **Today's
+check-in** workflow and should be usable while a standup is in progress without opening a modal for
+each person. Its selected team/date controls are local to collection; it does not render the history
+calendar.
 
 For each active team member, render:
 
@@ -180,11 +211,14 @@ Keyboard behavior:
 Use a radiogroup per member. Every choice has an accessible name containing the color and full
 meaning. Color is never the only indicator; pair it with text and a shape/icon.
 
-### 3.3 Month calendar
+### 3.3 Shared Team calendar
 
-Render a conventional month grid with previous/next controls, a Today shortcut, weekday headings,
-and visually muted non-working days based on the selected team's cadence. Non-working days remain
-selectable because a report may legitimately exist there.
+Use one month/date navigation contract for all Team calendar modes: previous/next controls, a Today
+shortcut, weekday headings, member filtering, and visually muted non-working days based on the
+selected team's cadence. Non-working days remain selectable because a check-in or availability
+entry may legitimately exist there. Switching modes preserves the visible month and member filter.
+
+Bandwidth mode renders the conventional month grid described below.
 
 Each populated cell shows:
 
@@ -220,9 +254,11 @@ they do not change the underlying check-in aggregate.
 
 ### 3.5 Individual analysis
 
-Add a member filter with **All team** as the default. Choosing one engineer switches the calendar
-to that person's raw daily colors and makes their notes available only after selecting a day. The
-summary becomes the person's distribution and response cadence for the period.
+Add a shared member filter with **All team** as the default. In Bandwidth, choosing one engineer
+switches the calendar to that person's raw daily colors and makes their notes available only after
+selecting a day. The summary becomes the person's distribution and response cadence for the period.
+In Availability, the same filter shows only that person's PTO, on-call, and velocity ranges. A
+member selection persists when the user switches views.
 
 The selected member is analysis state, not an epic filter. In the first release it may be local
 component state. If shareable analysis URLs are later needed, add optional `member`, `month`, and
@@ -235,12 +271,53 @@ Handle these explicitly:
 - no configured team members;
 - team has members but nobody has reported today;
 - selected month has no reports;
+- selected month has no availability entries;
 - only some members have reported;
 - a historical month contains now-inactive members;
 - bundled/sample dataset is read-only;
+- a Bandwidth request fails while Availability remains usable, and vice versa;
 - backend mutation fails while historical data remains readable.
 
 Never render an empty month as Green. Use neutral cells and the message **No check-ins recorded**.
+
+### 3.7 Availability mode and Configuration boundary
+
+Availability mode shows the same selected month/team/member context using the existing local-intent
+sources:
+
+- PTO ranges;
+- on-call ranges;
+- velocity overrides and their multiplier;
+- optional notes already stored on those entries.
+
+Adapt `buildAvailabilityEntries` rather than creating a second availability model. The month view
+shows multi-day spans or per-day markers with member identity, kind, and count. Selecting a day
+opens details grouped by PTO, On-call, and Velocity. The existing list presentation may remain as a
+secondary toggle for dense ranges and precise start/end dates.
+
+Move the existing Availability operational surface from Configuration into Team once equivalent
+add/delete behavior is present. During implementation it may exist temporarily in both places, but
+the final state must have one editor. Configuration retains team cadence, roster membership, base
+velocity, Jira linkage, and other setup concerns, plus a compact summary/link to **Open Team
+availability**. Team owns availability viewing and entry; Standup owns bandwidth entry.
+
+Do not combine feeling color and availability kind into one overloaded cell background in the first
+release. The primary view switch keeps their legends and semantics separate while preserving date
+context. A future multi-layer overlay can be considered only after it has an accessible, unambiguous
+visual grammar.
+
+### 3.8 Extensible Team views
+
+Model the primary switch as a typed collection rather than scattered booleans:
+
+```ts
+type TeamView = 'bandwidth' | 'availability';
+```
+
+Adding future team views such as rotation coverage, skills/ownership, or staffing should extend
+this contract and reuse shared team/member/date controls. It must not add nested primary navigation
+or turn Team into a route-per-tool dashboard. "Etc." is an extension seam, not scope for unspecified
+data in this delivery.
 
 ## 4. Domain model
 
@@ -334,9 +411,9 @@ calendar requests the visible month plus any leading/trailing displayed week day
 may request one adjacent period.
 
 Although the first implementation may also expose the optional collection through `/api/dataset`
-for persistence compatibility, the Bandwidth page should use this range endpoint. That keeps page
-load bounded as history grows and avoids making every unrelated dataset reload carry years of
-notes.
+for persistence compatibility, the Team page's Bandwidth mode should use this range endpoint. That
+keeps page load bounded as history grows and avoids making every unrelated dataset reload carry
+years of notes. Availability mode continues to consume the existing dataset and mutation APIs.
 
 ### 6.2 Idempotent upsert
 
@@ -427,36 +504,49 @@ math.
 
 ## 8. Frontend composition and routing
 
-Extend `PlannerTab` and the shared tab list with `bandwidth`, producing canonical URLs such as:
+Extend `PlannerTab` and the shared tab list with `team`, producing canonical URLs such as:
 
 ```text
-?tab=bandwidth
-?tab=bandwidth&epics=NF-123
-?tab=bandwidth&team=team-2
+?tab=team
+?tab=standup
+?tab=team&epics=NF-123
+?tab=team&team=team-2
 ```
 
 Update route parsing, serialization, legacy canonicalization, and tests so:
 
-- Bandwidth is a valid peer page;
+- Team and Standup are valid peer pages;
 - switching pages preserves epic and team parameters;
-- changing the epic filter while on Bandwidth leaves the page and team unchanged;
+- changing the epic filter while on Team leaves the page, team, Team view, member, and date context
+  unchanged;
 - changing the team leaves the page and epic filter unchanged;
 - back, forward, and reload restore the same page;
 - an invalid team is removed deterministically without changing the epic filter.
 
+Keep `TeamView` as page-local state in the first release and remember the last selection in local UI
+preference. If shareable Team analysis URLs become valuable, add a `teamView=bandwidth|availability`
+parameter later without introducing nested routes. Month, member, and selected-day state follow the
+same rule.
+
 Add focused components instead of enlarging `App.tsx`:
 
 ```text
-components/BandwidthPage.tsx
+components/TeamPage.tsx
+components/TeamCalendarControls.tsx
+components/TeamCalendar.tsx
 components/BandwidthEntryPanel.tsx
 components/BandwidthCalendar.tsx
 components/BandwidthDayDetails.tsx
 components/BandwidthLegend.tsx
+components/TeamAvailabilityView.tsx
 lib/bandwidth.ts
+lib/teamCalendar.ts
 ```
 
 Reuse existing member avatars/colors and shared panel/control styles where they communicate identity.
 Do not reuse member identity colors for feelings; feeling colors have one stable meaning everywhere.
+Reuse and adapt `AvailabilityCalendar`, `AvailabilityList`, `AddAvailabilityModal`, and
+`buildAvailabilityEntries`; do not fork them into a second Team-only implementation.
 
 Define theme tokens for the four states, neutral/missing, mixed indication, and count-mode intensity.
 Purple must meet the same text and non-text contrast targets as the other statuses. Verify light and
@@ -486,31 +576,37 @@ snapshot/import, and cannot be silently deleted through member removal.
 **Exit:** API tests can enter every feeling, edit and clear a note, reject invalid input, query a
 date range, and prove member/date uniqueness.
 
-### Slice 3 — Standup capture workflow
+### Slice 3 — Team calendar and Standup capture
 
-- Add Bandwidth to flat navigation and routing.
-- Build the selected-date entry panel with active roster rows.
+- Add Team to flat navigation and routing, including the independent team selector.
+- Add shared month/member/date controls and the Bandwidth/Availability view switch.
+- Build the selected-date Standup screen with active roster rows.
 - Implement row-local optimistic updates, retryable errors, and accessible radiogroups.
 - Add empty/read-only states and local-calendar "today" handling.
 
-**Exit:** a facilitator can capture an entire active roster without leaving the page, refresh, and
-see exactly the saved answers and notes.
+**Exit:** a facilitator can capture an entire active roster on Standup, refresh, and see exactly
+the saved answers and notes; Team remains calendar-only and switching its views preserves the
+selected team, member, and month.
 
-### Slice 4 — Calendar and analysis
+### Slice 4 — Team calendar modes and analysis
 
 - Implement the pure daily/period aggregation module.
 - Build month navigation, Average signal, and Count by feeling modes.
 - Add exact distribution, response coverage, mixed-state marker, and day details.
 - Add All team / individual filtering and period summaries.
+- Adapt the existing availability model/calendar/list to the shared Team controls.
+- Move Availability add/delete operations to Team and replace the Configuration editor with a
+  summary/link after parity is verified.
 - Add unit, component, accessibility, and end-to-end tests.
 
 **Exit:** month cells and summaries match hand-calculated fixtures for missing, mixed, complete,
-weekend, inactive-member, and month-boundary cases.
+weekend, inactive-member, and month-boundary cases; Availability shows the same chosen period and
+member without duplicating its editor in Configuration.
 
 ### Slice 5 — Hardening and documentation
 
 - Add responsive and visual-regression coverage at desktop and narrow widths.
-- Verify keyboard-only entry and calendar inspection.
+- Verify keyboard-only entry, mode switching, and calendar inspection.
 - Update README feature/run guidance and database snapshot/import privacy copy.
 - Document the formulas and the fact that check-ins do not modify forecast capacity.
 - Search for any logging or Jira payload path that could accidentally include note content.
@@ -556,8 +652,10 @@ existing data workflows, and passes the full repository test/build suite.
 - Average/Count toggles change the legend and accessible cell labels;
 - choosing Red count exposes exact hotspot days;
 - selecting a day shows reports, notes, and missing responders;
-- individual filter changes the calendar without changing epic scope;
-- changing pages preserves the epic filter and returning to Bandwidth restores team scope;
+- individual filter changes both Team views without changing epic scope;
+- switching Bandwidth/Availability preserves team, member, month, and selected date;
+- changing pages preserves the epic filter and returning to Team restores team scope;
+- availability can be viewed and managed from Team after its Configuration editor is removed;
 - desktop and mobile screenshots cover empty, partial, mixed, and dense months;
 - bundled sample mode is readable and mutation controls are disabled.
 
@@ -574,10 +672,12 @@ repository root. Final verification should include targeted tests during each sl
 | Persistence and sync safety | `packages/backend/src/db/persist.ts`, `reconcile.ts`, `snapshot.ts` |
 | Repository and routes | new `db/bandwidth.ts`, new `routes/bandwidth.ts`, `server.ts` |
 | Typed client | `packages/frontend/src/data/api.ts` |
-| Routing and shell | `packages/frontend/src/lib/router.ts`, `App.tsx` |
+| Routing and shell | `packages/frontend/src/lib/router.ts`, `App.tsx`, new `TeamPage.tsx` |
 | Analytics | new `packages/frontend/src/lib/bandwidth.ts` and focused tests |
-| Entry/calendar UI | new focused Bandwidth components, `styles.css` |
-| End-to-end/visual coverage | new frontend Bandwidth Playwright specs |
+| Shared Team calendar | new `TeamCalendarControls.tsx`, `TeamCalendar.tsx`, `lib/teamCalendar.ts` |
+| Bandwidth UI | new focused Bandwidth components, `styles.css` |
+| Availability migration | existing `AvailabilityCalendar.tsx`, `AddAvailabilityModal.tsx`, `Configuration.tsx`, `lib/availability.ts` |
+| End-to-end/visual coverage | new frontend Team/Bandwidth Playwright specs |
 | User documentation | `README.md`, database snapshot/import guidance |
 
 ## 12. Risks and mitigations
@@ -593,7 +693,10 @@ repository root. Final verification should include targeted tests during each sl
 | UTC conversion records the wrong day | Use a tested browser-local calendar helper; persist only validated `YYYY-MM-DD` dates |
 | Long history bloats unrelated page loads | Drive the page from a bounded range endpoint; keep full persistence support for snapshots/import |
 | Color-only status is inaccessible | Always pair color with label/count/icon and test keyboard, screen-reader names, and contrast |
-| Epic filtering creates a misleading subset | Epic and team state remain independent; bandwidth always reports the selected team's whole signal |
+| Team becomes a nested mini-application | Keep Team as one peer page with an in-page typed data-view switch and shared controls |
+| Epic filtering creates a misleading subset | Epic and team state remain independent; Team always reports the selected team's whole signal |
+| Availability has competing editors | Move the existing editor only after Team reaches parity, then leave a Configuration summary/link |
+| Bandwidth and availability colors become ambiguous | Use separate modes and legends; defer overlays until an accessible visual grammar exists |
 
 ## 13. Explicit non-goals for the first release
 
@@ -618,10 +721,14 @@ The feature is complete when:
 - all history persists across restart, Jira sync, snapshot, and database restore;
 - inactive engineers remain visible in relevant history and member deletion cannot silently erase
   check-ins;
-- the Bandwidth page is a peer page and preserves independent epic/team route state;
+- Team and Standup are peer pages and preserve independent epic/team route state;
+- Team offers Bandwidth and Availability through one in-page switch with shared team, member, and
+  date context;
 - the calendar can show documented Average signal and exact Count by feeling modes, including Red
   hotspots, response coverage, missing data, and mixed overload/underload days;
 - the user can inspect any day and filter history to one engineer;
+- the Availability mode presents existing PTO, on-call, and velocity data for the same selected
+  period and engineer, and there is only one final availability editor;
 - notes are absent from aggregate tooltips, URLs, logs, Jira requests, and sync logs;
 - bandwidth data does not modify any capacity calculation or forecast;
 - automated tests cover persistence, migrations, reconciliation, API validation, aggregation,

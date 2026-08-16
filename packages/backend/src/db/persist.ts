@@ -34,6 +34,10 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
     `INSERT INTO oncall (id, member_id, start_date, end_date, note)
      VALUES (@id, @memberId, @startDate, @endDate, @note)`,
   );
+  const insertBandwidthCheckIn = db.prepare(
+    `INSERT INTO bandwidth_check_in (member_id, check_in_date, feeling, note, created_at, updated_at)
+     VALUES (@memberId, @date, @feeling, @note, @createdAt, @updatedAt)`,
+  );
   const insertEpic = db.prepare(
     `INSERT INTO epic (key, title, team_id, active, source_status, status_category, archived_at, last_seen_at)
      VALUES (@key, @title, @teamId, @active, @sourceStatus, @statusCategory, @archivedAt, @lastSeenAt)`,
@@ -90,6 +94,9 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
     for (const v of data.velocityOverrides) insertVelocity.run({ ...v, note: v.note ?? null });
     for (const p of data.pto) insertPto.run({ ...p, note: p.note ?? null });
     for (const o of data.oncall) insertOncall.run({ ...o, note: o.note ?? null });
+    for (const checkIn of data.bandwidthCheckIns ?? []) {
+      insertBandwidthCheckIn.run({ ...checkIn, note: checkIn.note ?? null });
+    }
     for (const sp of data.sprints) insertSprint.run(sp);
     for (const e of data.epics) insertEpic.run({
       ...e, active: bool(e.active ?? true), sourceStatus: e.sourceStatus ?? null,
@@ -174,6 +181,17 @@ export function readDataset(db: Db): DomainDataset {
         startDate: r.start_date,
         endDate: r.end_date,
         note: r.note ?? null,
+      })),
+    bandwidthCheckIns: db
+      .prepare('SELECT * FROM bandwidth_check_in ORDER BY check_in_date ASC, member_id ASC')
+      .all()
+      .map((r: any) => ({
+        memberId: r.member_id,
+        date: r.check_in_date,
+        feeling: r.feeling,
+        note: r.note ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
       })),
     epics: db
       .prepare('SELECT * FROM epic')

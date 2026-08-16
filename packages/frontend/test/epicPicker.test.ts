@@ -29,10 +29,17 @@ describe('planner URL state', () => {
     expect(parsePlannerRoute('?view=epic&epics=missing&tab=gantt', known)).toMatchObject({ epics: [], tab: 'gantt', invalidKeys: ['missing'] });
   });
   it('serializes canonical selection and tab state', () => {
-    expect(routeSearch({ epics: ['NF-123'], tab: 'dependencies' })).toBe('?tab=dependencies&epics=NF-123');
+    expect(routeSearch({ epics: ['NF-123'], tab: 'dependencies', team: null })).toBe('?tab=dependencies&epics=NF-123');
   });
   it('uses overview as the all-active default and orders selections by dataset order', () => {
     expect(parsePlannerRoute('', known)).toMatchObject({ epics: [], tab: 'overview' });
     expect(parsePlannerRoute('?epics=NF-124,NF-123', known).epics).toEqual(['NF-123', 'NF-124']);
+  });
+  it('keeps an explicit team scope independent from the Team page and epic filter', () => {
+    const teams = new Set(['team-platform']);
+    expect(parsePlannerRoute('?tab=team&epics=NF-123&team=team-platform', known, teams)).toMatchObject({
+      tab: 'team', epics: ['NF-123'], team: 'team-platform',
+    });
+    expect(routeSearch({ tab: 'team', epics: [], team: 'team-platform' })).toBe('?tab=team&team=team-platform');
   });
 });

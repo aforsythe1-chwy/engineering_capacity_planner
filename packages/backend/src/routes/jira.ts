@@ -250,6 +250,45 @@ export function registerJiraRoutes(
     }
   });
 
+  app.get('/api/jira/board-statuses', async () => {
+    const settings = readDataset(db).settings;
+    const configuredBoard = settingStr(settings, SETTING_KEYS.JIRA_BOARD_ID);
+    if (!configuredBoard || !/^\d+$/.test(configuredBoard)) throw new HttpError(400, 'Select a Jira board first.');
+    const boardId = Number(configuredBoard);
+    const boardName = settingStr(settings, SETTING_KEYS.JIRA_BOARD_NAME) ?? `Board ${boardId}`;
+    const categoryOrder = (category: string) => category === 'new' ? 0 : category === 'indeterminate' ? 1 : category === 'done' ? 3 : 2;
+    try {
+      const c = client();
+      const [configuration, statuses, issues] = await Promise.all([
+        c.getBoardConfiguration(boardId), c.listStatuses(), c.listBoardIssues(boardId, ['status']),
+      ]);
+      const statusById = new Map(statuses.filter((status) => status.id).map((status) => [status.id!, status]));
+      const counts = new Map<string, number>();
+      for (const issue of issues) { const id = issue.fields.status?.id; if (id) counts.set(id, (counts.get(id) ?? 0) + 1); }
+      const discovered = configuration.columnConfig.columns.flatMap((column, columnIndex) => column.statuses.map((ref, statusIndex) => {
+        const status = statusById.get(ref.id);
+        return status ? { id: ref.id, name: status.name, category: status.statusCategory?.key ?? 'unknown', columnName: column.name, boardOrder: columnIndex * 100 + statusIndex, observedIssueCount: counts.get(ref.id) ?? 0 } : null;
+      })).filter((status): status is NonNullable<typeof status> => status !== null);
+      return { boardId: String(boardId), boardName, source: 'board-configuration' as const, statuses: discovered, warning: null };
+    } catch (primaryError) {
+      try {
+        const issues = await client().listBoardIssues(boardId, ['status']);
+        const observed = new Map<string, { id: string; name: string; category: string; columnName: null; boardOrder: number; observedIssueCount: number }>();
+        for (const issue of issues) {
+          const status = issue.fields.status; if (!status) continue;
+          const id = status.id ?? status.name;
+          const current = observed.get(id);
+          if (current) current.observedIssueCount += 1;
+          else observed.set(id, { id, name: status.name, category: status.statusCategory?.key ?? 'unknown', columnName: null, boardOrder: 0, observedIssueCount: 1 });
+        }
+        const discovered = [...observed.values()].sort((a, b) => categoryOrder(a.category) - categoryOrder(b.category) || a.name.localeCompare(b.name)).map((status, index) => ({ ...status, boardOrder: index }));
+        return { boardId: String(boardId), boardName, source: 'board-issues' as const, statuses: discovered, warning: 'Board configuration is unavailable; empty statuses may be missing.' };
+      } catch (fallbackError) {
+        throw new HttpError(502, `Jira status discovery failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+      }
+    }
+  });
+
   // --- Epic typeahead (scoped to the selected/persisted project) -----------
   app.get('/api/jira/epics', async (req) => {
     const q = (req.query ?? {}) as { q?: string; project?: string };
