@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { DomainDataset } from '@ecp/shared';
 import { globalStringSetting, isMappingComplete, SETTING_KEYS } from '@ecp/shared';
 import type { DatasetSource } from '../data/loadDataset';
@@ -66,6 +66,8 @@ export function SyncButton({ dataset, source, dataSource, onReload, onGoToSetup 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [showLocked, setShowLocked] = useState(false);
+  const [reviews, setReviews] = useState<api.SyncResponse['estimateReviews']>([]);
+  const syncRef = useRef<HTMLButtonElement>(null);
 
   // Locked until the mapping is complete against a live backend (bundled sample
   // data has no backend to sync to).
@@ -90,9 +92,11 @@ export function SyncButton({ dataset, source, dataSource, onReload, onGoToSetup 
           (s.placementsPulledDone ? ` · pulled ${s.placementsPulledDone} done` : '') +
           (s.placementsAddedFromJira ? ` · placed ${s.placementsAddedFromJira} from Jira sprints` : '') +
           (s.placementConflicts ? ` · ${s.placementConflicts} placement conflicts` : '') +
-          (s.membersAdded ? ` · +${s.membersAdded} members` : ''),
+          (s.membersAdded ? ` · +${s.membersAdded} members` : '') +
+          (res.estimateReviews.length ? ` · ${res.estimateReviews.length} estimate${res.estimateReviews.length === 1 ? '' : 's'} need review` : ''),
       );
       await onReload();
+      setReviews(res.estimateReviews);
     } catch (e) {
       setMsg(`⚠ ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -115,6 +119,7 @@ export function SyncButton({ dataset, source, dataSource, onReload, onGoToSetup 
         data-testid="nav-sync"
         data-state={configured ? freshness : 'locked'}
         disabled={busy}
+        ref={syncRef}
         title={title}
         onClick={() => (configured ? void sync() : setShowLocked(true))}
       >
@@ -158,6 +163,37 @@ export function SyncButton({ dataset, source, dataSource, onReload, onGoToSetup 
           </div>
         </div>
       )}
+      {reviews.length > 0 && <EstimateReviewDialog dataset={dataset} reviews={reviews} onClose={() => { setReviews([]); syncRef.current?.focus(); }} onSaved={async (epicKey) => { await onReload(); setReviews((current) => current.filter((review) => review.epicKey !== epicKey)); }} />}
     </div>
   );
+}
+
+function EstimateReviewDialog({ dataset, reviews, onClose, onSaved }: { dataset: DomainDataset; reviews: api.SyncResponse['estimateReviews']; onClose: () => void; onSaved: (epicKey: string) => Promise<void> }) {
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => { dialog.current?.querySelector<HTMLElement>('input, button')?.focus(); }, []);
+  const trapFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (event.key !== 'Tab') return;
+    const items = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])') ?? [])];
+    if (!items.length) return;
+    const first = items[0]!; const last = items.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  return <div className="modal-overlay estimate-review-overlay" role="presentation"><div className="modal estimate-review-dialog" role="dialog" aria-modal="true" aria-labelledby="estimate-review-title" ref={dialog} onKeyDown={trapFocus}><div className="modal-heading"><div><h3 id="estimate-review-title">Review Jira estimate changes</h3><p>Sync is complete. Acknowledge each changed epic when its unrefined amount still reflects the remaining work.</p></div><button type="button" className="link-btn" onClick={onClose}>Review later</button></div><div aria-live="polite">{reviews.map((review) => <EstimateReviewRow key={review.epicKey} review={review} title={dataset.epics.find((epic) => epic.key === review.epicKey)?.title ?? review.epicKey} onSaved={onSaved} />)}</div><div className="modal-actions"><button type="button" className="btn" onClick={onClose}>Review later</button></div></div></div>;
+}
+
+function EstimateReviewRow({ review, title, onSaved }: { review: api.SyncResponse['estimateReviews'][number]; title: string; onSaved: (epicKey: string) => Promise<void> }) {
+  const [value, setValue] = useState(String(review.workload.unrefinedRemainingPoints));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const parsed = Number(value); const valid = Number.isFinite(parsed) && parsed >= 0;
+  const changeSummary = review.workload.estimateReviewChanges.map((change) => change.kind === 'new-item' ? `${change.key} added` : change.kind === 'newly-estimated' ? `${change.key} pointed` : `${change.key} increased`).join(', ');
+  const save = async (amount: number) => {
+    setBusy(true); setError(null);
+    try { await api.saveEpicEstimate(review.epicKey, { unrefinedPoints: amount, expectedFactSignature: review.workload.factSignature }); await onSaved(review.epicKey); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
+  return <section className="estimate-review-row"><div><strong>{review.epicKey} — {title}</strong><p className="hint">{changeSummary}. Current modeled total: {review.workload.jiraEstimatedRemainingPoints} Jira + {review.workload.unrefinedRemainingPoints} unrefined = {review.workload.modeledRemainingPoints} pts.</p></div><div className="estimate-review-actions"><label className="control"><span>Unrefined remaining</span><span className="number-with-unit"><input type="number" min="0" step="0.5" value={value} disabled={busy} onChange={(event) => setValue(event.target.value)} /><em>pts</em></span></label><button type="button" className="btn" disabled={busy} onClick={() => void save(review.workload.unrefinedRemainingPoints)}>Keep current amount</button><button type="button" className="btn primary" disabled={busy || !valid} onClick={() => void save(parsed)}>Update estimate</button></div>{error && <p className="config-error" role="alert">{error}</p>}</section>;
 }

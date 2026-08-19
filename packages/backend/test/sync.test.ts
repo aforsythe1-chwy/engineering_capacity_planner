@@ -122,6 +122,55 @@ describe('POST /api/sync', () => {
     expect(log2.json().entries).toHaveLength(2);
   });
 
+  it('preserves an active standup and its participants across sync', async () => {
+    app = await jiraServer(await seedFakeBoard());
+    expect((await app.inject({ method: 'POST', url: '/api/sync' })).statusCode).toBe(200);
+
+    const dataset = (await app.inject({ method: 'GET', url: '/api/dataset' })).json();
+    const member = dataset.members.find((entry: any) => entry.name === 'Ada');
+    expect(member).toBeDefined();
+    expect((await app.inject({ method: 'PUT', url: `/api/members/${member.id}`, payload: { active: true } })).statusCode).toBe(200);
+
+    const started = await app.inject({
+      method: 'POST',
+      url: '/api/standups/start',
+      payload: { teamId: dataset.teams[0].id, date: '2026-02-02' },
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json().participants).toMatchObject([{ memberId: member.id, memberName: 'Ada' }]);
+
+    const synced = await app.inject({ method: 'POST', url: '/api/sync' });
+    expect(synced.statusCode).toBe(200);
+
+    const preserved = await app.inject({ method: 'GET', url: `/api/standups/${started.json().session.id}` });
+    expect(preserved.statusCode).toBe(200);
+    expect(preserved.json().session).toMatchObject({ id: started.json().session.id, status: 'active' });
+    expect(preserved.json().participants).toMatchObject([{ memberId: member.id, memberName: 'Ada' }]);
+  });
+
+  it('derives durable estimate review and rejects a stale estimate acknowledgment', async () => {
+    const jira = await seedFakeBoard();
+    app = await jiraServer(jira);
+    await app.inject({ method: 'POST', url: '/api/sync' });
+    const originalSignature = JSON.stringify([['CKT-3', 5]]);
+    const estimate = await app.inject({ method: 'PUT', url: '/api/epics/CKT-1/estimate', payload: { unrefinedPoints: 20, expectedFactSignature: originalSignature } });
+    expect(estimate.statusCode).toBe(200);
+
+    const story = await jira.getIssue('CKT-2', ['summary']);
+    await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'New scope', parent: { key: story.key }, status: 'To Do', customfield_10016: 3 } });
+    const synced = await app.inject({ method: 'POST', url: '/api/sync' });
+    expect(synced.statusCode).toBe(200);
+    expect(synced.json().estimateReviews).toHaveLength(1);
+    expect(synced.json().estimateReviews[0].workload.modeledRemainingPoints).toBe(28);
+
+    const stale = await app.inject({ method: 'PUT', url: '/api/epics/CKT-1/estimate', payload: { unrefinedPoints: 17, expectedFactSignature: originalSignature } });
+    expect(stale.statusCode).toBe(409);
+    const current = synced.json().estimateReviews[0].workload.factSignature;
+    const acknowledged = await app.inject({ method: 'PUT', url: '/api/epics/CKT-1/estimate', payload: { unrefinedPoints: 17, expectedFactSignature: current } });
+    expect(acknowledged.statusCode).toBe(200);
+    expect(acknowledged.json().workload.estimateReviewRequired).toBe(false);
+  });
+
   it('returns 400 when the field mapping is incomplete', async () => {
     const jira = await seedFakeBoard();
     // No settings patched → no story-points field mapped anywhere.

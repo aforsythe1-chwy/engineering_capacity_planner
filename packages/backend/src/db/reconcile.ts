@@ -55,7 +55,7 @@ export interface ReconcileResult {
  * Pure and deterministic (no DB, no clock): the caller persists `merged` with
  * the usual transactional {@link import('./persist.js').writeDataset}.
  */
-export function reconcileDataset(current: DomainDataset, incoming: DomainDataset): ReconcileResult {
+export function reconcileDataset(current: DomainDataset, incoming: DomainDataset, syncedAt = '1970-01-01T00:00:00.000Z'): ReconcileResult {
   const changes: SyncChange[] = [];
 
   // --- Team: keep local cadence/name; refresh the anchor from synced sprints.
@@ -128,6 +128,9 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
     }
     if (prev.points !== w.points) {
       changes.push({ category: 'points', entity: w.key, detail: `Story points ${prev.points} → ${w.points}` });
+    }
+    if ((prev.isEstimated === false) !== (w.isEstimated === false)) {
+      changes.push({ category: 'points', entity: w.key, detail: w.isEstimated === false ? 'Story point estimate removed' : `Story point estimate added (${w.points} pts)` });
     }
     if ((prev.assigneeId ?? null) !== (w.assigneeId ?? null)) {
       changes.push({ category: 'assignee', entity: w.key, detail: `Reassigned ${memberName(prev.assigneeId ?? null)} → ${memberName(w.assigneeId ?? null)}` });
@@ -226,7 +229,7 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
   const incomingEpicKeys = new Set(incoming.epics.map((e) => e.key));
   let epicsArchived = 0;
   let epicsReactivated = 0;
-  const now = new Date().toISOString();
+  const now = syncedAt;
   const refreshedEpics = incoming.epics.map((epic) => {
     const was = current.epics.find((e) => e.key === epic.key);
     if (was?.active === false) { epicsReactivated += 1; changes.push({ category: 'epic-reactivated', entity: epic.key, detail: 'Epic is active in the board scope again' }); return { ...epic, active: true, archivedAt: null, lastSeenAt: now }; }
@@ -267,8 +270,10 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
     bandwidthCheckIns,
     epics: allEpics,
     portfolioEpics: current.portfolioEpics,
+    epicEstimates: (current.epicEstimates ?? []).filter((estimate) => epicKeys.has(estimate.epicKey)),
     epicSmes: (current.epicSmes ?? []).filter((sme) => epicKeys.has(sme.epicKey) && memberIds.has(sme.memberId)),
     milestones,
+    importantDates: current.importantDates ?? [],
     stories: allStories,
     workItems: allWorkItems,
     dependencies: allDependencies,

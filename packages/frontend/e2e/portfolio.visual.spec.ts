@@ -6,7 +6,7 @@ function visualDataset() {
   const data = {
     teams: [{ id: 'platform', name: 'Platform team', sprintLengthDays: 14, sprintStartWeekday: 1, sprintAnchorDate: '2026-08-03', workingDays: [1, 2, 3, 4, 5] }],
     members: [{ id: 'ada', teamId: 'platform', name: 'Ada', baseVelocity: 20, active: true }, { id: 'ben', teamId: 'platform', name: 'Ben', baseVelocity: 16, active: true }],
-    velocityOverrides: [], pto: [], oncall: [], epics: [], milestones: [], stories: [], workItems: [], dependencies: [], sprints: [], placements: [], settings: [], portfolioEpics: [],
+    velocityOverrides: [], pto: [], oncall: [], epics: [], milestones: [], stories: [], workItems: [], dependencies: [], sprints: [], placements: [], settings: [{ key: 'planning_today', scope: 'global', scopeId: null, value: '"2026-08-16"' }], portfolioEpics: [],
   };
   for (const [key, title, target, estimated] of [
     ['NF-123', 'Checkout reliability and customer experience resilience program', '2026-08-20', true],
@@ -30,9 +30,9 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/health', (route) => route.fulfill({ json: { dataSource: 'synthetic' } }));
 });
 
-test('captures deterministic portfolio desktop, dense, mobile, picker, and drill-down states', async ({ page }) => {
+test('captures deterministic portfolio and Calendar states', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto('/?view=portfolio');
+  await page.goto('/');
   await expect(page.getByTestId('portfolio-overview')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/portfolio-screenshots/portfolio-default.png', fullPage: true });
@@ -44,15 +44,24 @@ test('captures deterministic portfolio desktop, dense, mobile, picker, and drill
   await page.screenshot({ path: 'test-results/portfolio-screenshots/portfolio-mobile.png', fullPage: true });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const picker = page.getByRole('combobox', { name: 'Jump to epic' });
+  await page.getByTestId('tab-timeline').click();
+  await expect(page).toHaveURL(/tab=timeline/);
+  await expect(page.getByTestId('portfolio-calendar')).toBeVisible();
+  await page.screenshot({ path: 'test-results/portfolio-screenshots/calendar-all.png', fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/portfolio-screenshots/calendar-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  const picker = page.getByRole('combobox', { name: 'Epic filter' });
   await picker.fill('nf123');
   await expect(page.getByRole('option', { name: /NF-123/ })).toBeVisible();
   await page.screenshot({ path: 'test-results/portfolio-screenshots/portfolio-picker-open.png', fullPage: true });
   await picker.press('Enter');
-  await expect(page).toHaveURL(/view=epic&epics=NF-123&tab=timeline/);
-  await page.screenshot({ path: 'test-results/portfolio-screenshots/epic-picker-selected.png', fullPage: true });
+  await expect(page).toHaveURL(/tab=timeline&epics=NF-123/);
+  await page.screenshot({ path: 'test-results/portfolio-screenshots/calendar-filtered.png', fullPage: true });
 
-  await page.getByRole('combobox', { name: 'Current epic' }).fill('does-not-exist');
+  await page.getByRole('combobox', { name: 'Epic filter' }).fill('does-not-exist');
   await expect(page.getByText('No matching active epics.')).toBeVisible();
   await page.screenshot({ path: 'test-results/portfolio-screenshots/portfolio-no-match.png', fullPage: true });
 });

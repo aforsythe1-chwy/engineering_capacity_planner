@@ -114,6 +114,17 @@ describe('Configuration write API', () => {
     const res = await app.inject({ method: 'DELETE', url: `/api/milestones/${gate.id}` });
     expect(res.statusCode).toBe(409);
   });
+
+  it('maintains global important dates through the Configuration API', async () => {
+    app = await buildServer({ dbPath: ':memory:' });
+    const created = await app.inject({ method: 'POST', url: '/api/important-dates', payload: { name: 'Planning', date: '2026-09-10', iconKey: 'users' } });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    expect((await app.inject({ method: 'PUT', url: `/api/important-dates/${id}`, payload: { iconKey: 'rocket' } })).json()).toMatchObject({ iconKey: 'rocket' });
+    expect((await app.inject({ method: 'GET', url: '/api/dataset' })).json().importantDates).toMatchObject([{ id, name: 'Planning', iconKey: 'rocket' }]);
+    expect((await app.inject({ method: 'DELETE', url: `/api/important-dates/${id}` })).statusCode).toBe(204);
+    expect((await app.inject({ method: 'POST', url: '/api/important-dates', payload: { name: 'Bad', date: '2026-02-30', iconKey: 'svg' } })).statusCode).toBe(400);
+  });
 });
 
 describe('Bandwidth check-in API', () => {
@@ -146,6 +157,30 @@ describe('Bandwidth check-in API', () => {
     const cleared = await app.inject({ method: 'DELETE', url: `/api/bandwidth-check-ins/${memberId}/${date}` });
     expect(cleared.statusCode).toBe(204);
     expect((await app.inject({ method: 'GET', url: `/api/bandwidth-check-ins?teamId=${teamId}&from=2026-08-01&to=2026-08-31` })).json().checkIns).toEqual([]);
+  });
+
+  it('includes standup check-ins in the team bandwidth calendar', async () => {
+    app = await buildServer({ dbPath: ':memory:' });
+    const dataset = (await app.inject({ method: 'GET', url: '/api/dataset' })).json();
+    const member = dataset.members.find((entry: any) => entry.active);
+    expect(member).toBeDefined();
+    const date = '2026-08-18';
+
+    const started = await app.inject({
+      method: 'POST', url: '/api/standups/start', payload: { teamId: member.teamId, date },
+    });
+    expect(started.statusCode).toBe(200);
+    const sessionId = started.json().session.id;
+    expect((await app.inject({
+      method: 'PUT', url: `/api/standups/${sessionId}/check-ins/${member.id}`,
+      payload: { feeling: 'green' },
+    })).statusCode).toBe(200);
+
+    const listed = await app.inject({
+      method: 'GET', url: `/api/bandwidth-check-ins?teamId=${member.teamId}&from=2026-08-01&to=2026-08-31`,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().checkIns).toMatchObject([{ memberId: member.id, date, sessionId, feeling: 'green' }]);
   });
 
   it('validates check-ins and prevents deleting members with history', async () => {

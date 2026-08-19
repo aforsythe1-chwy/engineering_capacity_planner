@@ -1,22 +1,21 @@
 import { useMemo } from 'react';
 import type { DomainDataset } from '@ecp/shared';
-import { projectPortfolioFromDataset } from '@ecp/engine';
+import type { PortfolioProjection } from '@ecp/engine';
 import { JiraKeyLink } from './JiraLink';
 import { formatDate } from '../lib/format';
 import { buildPortfolioOverview } from '../lib/portfolioOverview';
 
-const today = () => new Date().toISOString().slice(0, 10);
 const healthLabel = (health: string) => health.replaceAll('-', ' ');
 
-export function PortfolioOverview({ dataset, onSelect, selectedKeys = [] }: { dataset: DomainDataset; onSelect: (key: string) => void; selectedKeys?: string[] }) {
-  const model = useMemo(() => buildPortfolioOverview(dataset, projectPortfolioFromDataset(dataset, today())), [dataset]);
+export function PortfolioOverview({ dataset, projection, onSelect, selectedKeys = [] }: { dataset: DomainDataset; projection: PortfolioProjection; onSelect: (key: string) => void; selectedKeys?: string[] }) {
+  const model = useMemo(() => buildPortfolioOverview(dataset, projection), [dataset, projection]);
   return <main data-testid="portfolio-overview">
     <section className="portfolio-intro">
       <div><p className="eyebrow">Shared capacity plan</p><h2>Portfolio</h2><p>Capacity is allocated once across all active epics. Start with exceptions, then inspect the weeks where the team is tight.</p></div>
       <span className="portfolio-active-count">{model.activeEpicCount} active epic{model.activeEpicCount === 1 ? '' : 's'}</span>
     </section>
     <section className="portfolio-summary" aria-label="Portfolio summary">
-      <SummaryMetric label="Estimated work remaining" value={`${model.remainingPoints} pts`} />
+      <SummaryMetric label="Modeled work remaining" value={`${model.remainingPoints} pts`} />
       <SummaryMetric label="Needs estimates" value={`${model.unestimatedItems} items`} warning={model.unestimatedItems > 0} />
       <SummaryMetric label="Peak utilization" value={`${Math.round(model.peakUtilization * 100)}%`} warning={model.peakUtilization >= 0.85} />
       <SummaryMetric label="Overloaded weeks" value={String(model.overloadedWeekCount)} danger={model.overloadedWeekCount > 0} />
@@ -30,8 +29,9 @@ export function PortfolioOverview({ dataset, onSelect, selectedKeys = [] }: { da
             <Metric label={row.health === 'ongoing' ? 'Planning kind' : row.targetDate ? row.targetName ?? 'Gating target' : 'Planning input'} value={row.health === 'ongoing' ? 'Ongoing' : row.targetDate ? formatDate(row.targetDate) : 'Needs target'} />
             <Metric label="Projected completion" value={row.health === 'ongoing' ? 'Not applicable' : row.projectedDevCompleteDate ? formatDate(row.projectedDevCompleteDate) : 'Not forecast'} />
             <Metric label="Buffer" value={row.health === 'ongoing' ? 'Not applicable' : row.bufferWorkingDays === null ? '—' : `${row.bufferWorkingDays} working days`} />
-            <Metric label="Remaining" value={`${row.remainingPoints} pts · ${row.unestimatedItems} unestimated`} />
+            <Metric label="Modeled remaining" value={`${row.jiraEstimatedRemainingPoints} Jira + ${row.unrefinedRemainingPoints} unrefined = ${row.modeledRemainingPoints} pts`} />
           </div>
+          {row.estimateReviewRequired && <p className="estimate-review-warning" role="status">Estimate review needed — Jira work changed since the last acknowledgment.</p>}
           <div className="portfolio-planning"><div className="portfolio-planning-label"><span>Planning placement</span><span>{row.placedPoints} placed / {row.unplannedPoints} unplanned</span></div><div className="portfolio-progress" aria-label={`${row.placedPoints} placed points and ${row.unplannedPoints} unplanned points`}><span style={{ width: `${row.remainingPoints ? Math.round(row.placedPoints / row.remainingPoints * 100) : 100}%` }} /></div></div>
           <div className="portfolio-card-footer"><p title={row.reason}>{row.reason}</p><span className="portfolio-owners">{row.assigneeNames.length ? row.assigneeNames.slice(0, 3).join(', ') : 'No assignees'}</span><button type="button" className="portfolio-open" onClick={() => onSelect(row.epicKey)}>Show only this epic <span aria-hidden="true">→</span></button></div>
         </article>)}

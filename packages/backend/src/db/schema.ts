@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS oncall (
 CREATE TABLE IF NOT EXISTS bandwidth_check_in (
   member_id     TEXT NOT NULL REFERENCES team_member(id) ON DELETE RESTRICT,
   check_in_date TEXT NOT NULL,
+  session_id    TEXT REFERENCES standup_session(id) ON DELETE CASCADE,
   feeling       TEXT NOT NULL CHECK(feeling IN ('red', 'yellow', 'green', 'purple')),
   note          TEXT,
   created_at    TEXT NOT NULL,
@@ -87,6 +88,16 @@ CREATE TABLE IF NOT EXISTS portfolio_epic (
   priority INTEGER NOT NULL DEFAULT 0
 );
 
+-- Local estimate intent: no row means unknown/unacknowledged, while zero is a
+-- deliberate acknowledgement that no additional unrefined work remains.
+CREATE TABLE IF NOT EXISTS epic_estimate (
+  epic_key TEXT PRIMARY KEY REFERENCES epic(key) ON DELETE CASCADE,
+  unrefined_points REAL NOT NULL CHECK(unrefined_points >= 0),
+  reviewed_fact_basis_json TEXT NOT NULL,
+  reviewed_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS epic_sme (
   epic_key  TEXT NOT NULL REFERENCES epic(key) ON DELETE CASCADE,
   member_id TEXT NOT NULL REFERENCES team_member(id) ON DELETE CASCADE,
@@ -101,6 +112,15 @@ CREATE TABLE IF NOT EXISTS epic_milestone (
   name      TEXT NOT NULL,
   date      TEXT NOT NULL,
   is_gating INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS global_important_date (
+  id       TEXT PRIMARY KEY,
+  name     TEXT NOT NULL,
+  date     TEXT NOT NULL,
+  icon_key TEXT NOT NULL,
+  notes    TEXT,
+  link_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS user_story (
@@ -186,6 +206,7 @@ CREATE TABLE IF NOT EXISTS standup_session (
   started_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT,
+  committed_at TEXT,
   revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
   final_schema_version INTEGER,
   final_snapshot_json TEXT,
@@ -238,6 +259,7 @@ CREATE INDEX IF NOT EXISTS idx_story_epic         ON user_story(epic_key);
 CREATE INDEX IF NOT EXISTS idx_work_item_story    ON work_item(story_key);
 CREATE INDEX IF NOT EXISTS idx_work_item_assignee ON work_item(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_epic     ON epic_milestone(epic_key);
+CREATE INDEX IF NOT EXISTS idx_global_important_date_date ON global_important_date(date, id);
 CREATE INDEX IF NOT EXISTS idx_epic_sme_member    ON epic_sme(member_id);
 CREATE INDEX IF NOT EXISTS idx_dep_blocker        ON dependency(blocker_item_key);
 CREATE INDEX IF NOT EXISTS idx_dep_blocked        ON dependency(blocked_item_key);
@@ -259,8 +281,10 @@ export const INSERT_ORDER = [
   'sprint',
   'epic',
   'portfolio_epic',
+  'epic_estimate',
   'epic_sme',
   'epic_milestone',
+  'global_important_date',
   'user_story',
   'work_item',
   'dependency',

@@ -24,6 +24,27 @@ function expectHttp(fn: () => unknown, status: number): void {
   throw new Error(`expected HttpError ${status}, but nothing was thrown`);
 }
 
+describe('global important dates', () => {
+  it('creates, updates, and removes a validated local date', () => {
+    const created = repo.createImportantDate(db, { name: '  Planning  ', date: '2026-09-10', iconKey: 'users', notes: '  Bring roadmap  ', linkUrl: 'https://example.com/plan' });
+    expect(created).toMatchObject({ name: 'Planning', date: '2026-09-10', iconKey: 'users', notes: 'Bring roadmap', linkUrl: 'https://example.com/plan' });
+    const updated = repo.updateImportantDate(db, created.id, { name: 'Launch freeze', iconKey: 'shield', linkUrl: '' });
+    expect(updated).toMatchObject({ name: 'Launch freeze', iconKey: 'shield', linkUrl: null });
+    expect(readDataset(db).importantDates).toEqual([updated]);
+    repo.deleteImportantDate(db, created.id);
+    expect(readDataset(db).importantDates).toEqual([]);
+  });
+
+  it('rejects invalid dates, icons, patches, and missing rows', () => {
+    expectHttp(() => repo.createImportantDate(db, { name: 'x', date: '2026-02-30', iconKey: 'calendar' }), 400);
+    expectHttp(() => repo.createImportantDate(db, { name: 'x', date: '2026-02-28', iconKey: 'svg' }), 400);
+    expectHttp(() => repo.createImportantDate(db, { name: 'x', date: '2026-02-28', iconKey: 'calendar', linkUrl: 'javascript:alert(1)' }), 400);
+    expectHttp(() => repo.updateImportantDate(db, 'none', { name: 'x' }), 404);
+    const created = repo.createImportantDate(db, { name: 'x', date: '2026-02-28', iconKey: 'calendar' });
+    expectHttp(() => repo.updateImportantDate(db, created.id, {}), 400);
+  });
+});
+
 describe('settings', () => {
   it('upserts a known numeric knob and returns global settings', () => {
     const settings = repo.upsertGlobalSettings(db, { [SETTING_KEYS.ONCALL_MULTIPLIER]: 0.25 });

@@ -15,6 +15,7 @@ import { registerJiraRoutes } from './routes/jira.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerPortfolioRoutes } from './routes/portfolio.js';
 import { registerSyncRoutes } from './routes/sync.js';
+import { SyncCoordinator } from './sync/sync-service.js';
 
 /** Injectable dependencies (used by tests / the round-trip harness). */
 export interface BuildServerDeps {
@@ -38,10 +39,12 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
 
   // Demo mode: stand up a pre-seeded fake Jira and default its mapping, so the
   // field mapper + Sync work in the real app with no credentials.
-  let jiraClient = deps.jiraClient;
+  let jiraRawClient = deps.jiraClient;
+  let jiraClient = jiraRawClient;
   const db = openDatabase({ path: config.dbPath });
-  if (config.jiraFake && !jiraClient) {
-    jiraClient = await createDemoJiraClient(config.syntheticSeed);
+  if (config.jiraFake && !jiraRawClient) {
+    jiraRawClient = await createDemoJiraClient(config.syntheticSeed);
+    jiraClient = jiraRawClient;
     config = {
       ...config,
       dataSource: 'jira',
@@ -56,15 +59,33 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   }
   if (config.dataSource === 'jira' && !config.jiraFake) {
     jiraCache = new JiraRequestCache(config.jiraCacheTtlMs, config.jiraRequestDebug);
-    jiraClient = new CachedJiraClient(jiraClient ?? buildJiraClient(config.jira), jiraCache);
+    jiraRawClient = jiraRawClient ?? buildJiraClient(config.jira);
+    // Discovery may reuse a short-lived cache; full planner sync always gets
+    // jiraRawClient and therefore performs fresh source reads.
+    jiraClient = new CachedJiraClient(jiraRawClient, jiraCache);
   }
+
+  const syncCoordinator = new SyncCoordinator(db, config, jiraRawClient);
 
   if (config.seedIfEmpty) {
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM epic').get() as { n: number };
     if (n === 0) {
-      const importer = createImporter(config, [], jiraClient);
-      app.log.info(`Empty database — importing from "${importer.name}" source`);
-      writeDataset(db, await importer.fetch());
+      if (config.dataSource === 'jira') {
+        try {
+          await syncCoordinator.run('startup');
+          app.log.info('Empty database — populated through the authoritative Jira sync service');
+        } catch (error) {
+          if (error instanceof HttpError && error.statusCode === 400) {
+            app.log.warn('Empty database — Jira mapping is incomplete; waiting for explicit sync after setup');
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        const importer = createImporter(config, [], jiraRawClient);
+        app.log.info(`Empty database — importing synthetic fixture from "${importer.name}" source`);
+        writeDataset(db, await importer.fetch());
+      }
     }
   }
 
@@ -111,7 +132,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   // Gantt Planner placement endpoints (project plan §6a).
   registerPlanningRoutes(app, db);
   // Jira sync: re-import + reconcile (project plan §7).
-  registerSyncRoutes(app, db, config, jiraClient);
+  registerSyncRoutes(app, db, config, jiraRawClient, syncCoordinator);
   // Jira introspection for the live field mapper (project plan §7).
   registerJiraRoutes(app, db, config, jiraClient, jiraCache);
   // Local DB snapshot + drag-and-drop import.

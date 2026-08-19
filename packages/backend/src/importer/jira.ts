@@ -1,4 +1,4 @@
-import type { DomainDataset, Importer } from '@ecp/shared';
+import type { DomainDataset, Importer, SyncSnapshot } from '@ecp/shared';
 import { formatIso } from '@ecp/shared';
 import type { JiraClient } from '../jira/client.js';
 import { datasetFromJira } from '../jira/mapper.js';
@@ -74,6 +74,7 @@ export class JiraImporter implements Importer {
   readonly name = 'jira';
   private readonly fallbackAnchorDate: string;
   private readonly cachePath: string | null;
+  private lastCache: JiraSyncCache | null = null;
 
   constructor(
     private readonly client: JiraClient,
@@ -127,30 +128,25 @@ export class JiraImporter implements Importer {
     return boardId;
   }
 
-  /** Write the raw fetch payload beside the DB for later obfuscated export. */
-  private persistCache(
-    epicIssue: JiraIssue,
-    storyIssues: JiraIssue[],
-    workIssues: JiraIssue[],
-    sprints: JiraSprint[],
-  ): void {
-    if (!this.cachePath) return;
-    const cache: JiraSyncCache = {
-      version: JIRA_SYNC_CACHE_VERSION,
-      cachedAt: new Date().toISOString(),
-      mapping: this.mapping,
-      epicIssue,
-      storyIssues,
-      workIssues,
-      sprints,
-    };
-    writeSyncCache(this.cachePath, cache);
+  async fetch(): Promise<DomainDataset> {
+    // Compatibility for direct importer tooling. Full planner sync calls
+    // fetchSyncSnapshot and persists only after its database transaction.
+    const snapshot = await this.fetchSyncSnapshot();
+    this.persistLastCache();
+    return snapshot.dataset;
   }
 
-  async fetch(): Promise<DomainDataset> {
+  /** Called by SyncCoordinator only after the matching DB transaction commits. */
+  persistLastCache(): void {
+    if (this.cachePath && this.lastCache) writeSyncCache(this.cachePath, this.lastCache);
+  }
+
+  async fetchSyncSnapshot(): Promise<SyncSnapshot> {
     const boardId = await this.resolveBoardId();
     const sprints = boardId == null ? [] : await this.client.listSprints(boardId);
     const datasets: DomainDataset[] = [];
+    const rawEpics: NonNullable<JiraSyncCache['epics']> = [];
+    let observedEpicKeys: string[] = [];
     if (this.mapping.epicScopeMode === 'active' && boardId != null) {
       const boardIssues = await this.client.listBoardIssues(boardId, [
         ...new Set(['summary', 'status', 'parent', 'issuetype', 'assignee', 'issuelinks', ...storyFields(this.mapping), ...workItemFields(this.mapping)]),
@@ -162,6 +158,7 @@ export class JiraImporter implements Importer {
         : referencedEpics.length > 0
           ? referencedEpics.map((epicIssue) => ({ epicIssue, directChildrenAreWork: true }))
           : boardIssues.filter((issue) => !issue.fields.parent).map((epicIssue) => ({ epicIssue, directChildrenAreWork: false }));
+      observedEpicKeys = roots.map(({ epicIssue }) => epicIssue.key);
       for (const { epicIssue, directChildrenAreWork } of roots) {
         if (epicIssue.fields.status?.statusCategory?.key === 'done') continue;
         const directChildren = boardIssues.filter((issue) => issue.fields.parent?.key === epicIssue.key);
@@ -176,24 +173,44 @@ export class JiraImporter implements Importer {
           ? [directChildren, nestedWork]
           : [[], directChildren];
         if (!workIssues.some((issue) => issue.fields.status?.statusCategory?.key !== 'done')) continue;
-        this.persistCache(epicIssue, storyIssues, workIssues, sprints);
+        rawEpics.push({ epicIssue, storyIssues, workIssues });
         datasets.push(datasetFromJira({ epicIssue, storyIssues, workIssues, sprints, mapping: this.mapping, fallbackAnchorDate: this.fallbackAnchorDate, placementDate: formatIso(new Date()) }));
       }
     } else {
       const epicKeys = await this.resolveEpicKeys();
+      observedEpicKeys = epicKeys;
       for (const epicKey of epicKeys) {
         const epicIssue = await this.client.getIssue(epicKey, ['summary', 'status']);
         const storyIssues = await this.searchAll(`parent = "${epicKey}"`, [...new Set([...storyFields(this.mapping), ...workItemFields(this.mapping)])]);
         const inList = storyIssues.map((s) => `"${s.key}"`).join(', ');
         const nestedWork = inList ? await this.searchAll(`parent in (${inList})`, workItemFields(this.mapping)) : [];
         const [hierarchyStories, workIssues] = nestedWork.length > 0 ? [storyIssues, nestedWork] : [[], storyIssues];
-        this.persistCache(epicIssue, hierarchyStories, workIssues, sprints);
+        rawEpics.push({ epicIssue, storyIssues: hierarchyStories, workIssues });
         datasets.push(datasetFromJira({ epicIssue, storyIssues: hierarchyStories, workIssues, sprints, mapping: this.mapping, fallbackAnchorDate: this.fallbackAnchorDate, placementDate: formatIso(new Date()) }));
       }
     }
-    if (!datasets.length) throw new MappingError(`No active epics found in project "${this.mapping.projectKey}".`);
-    const first = datasets[0]!;
+    const first = datasets[0];
     const dedupe = <T extends { key?: string; id?: string }>(values: T[]) => [...new Map(values.map((v) => [v.key ?? v.id!, v])).values()];
-    return { ...first, members: dedupe(datasets.flatMap((d) => d.members)), epics: datasets.flatMap((d) => d.epics), stories: datasets.flatMap((d) => d.stories), workItems: datasets.flatMap((d) => d.workItems), dependencies: dedupe(datasets.flatMap((d) => d.dependencies)), placements: datasets.flatMap((d) => d.placements) };
+    const dataset: DomainDataset = first
+      ? { ...first, members: dedupe(datasets.flatMap((d) => d.members)), epics: datasets.flatMap((d) => d.epics), stories: datasets.flatMap((d) => d.stories), workItems: datasets.flatMap((d) => d.workItems), dependencies: dedupe(datasets.flatMap((d) => d.dependencies)), placements: datasets.flatMap((d) => d.placements) }
+      : { teams: [], members: [], velocityOverrides: [], pto: [], oncall: [], epics: [], milestones: [], stories: [], workItems: [], dependencies: [], sprints: [], placements: [], settings: [] };
+    if (rawEpics.length) {
+      const firstRaw = rawEpics[0]!;
+      this.lastCache = { version: JIRA_SYNC_CACHE_VERSION, cachedAt: new Date().toISOString(), mapping: this.mapping, ...firstRaw, sprints, epics: rawEpics };
+    } else {
+      this.lastCache = null;
+    }
+    return {
+      dataset,
+      source: 'jira',
+      scope: {
+        kind: this.mapping.epicScopeMode === 'single' ? 'complete-single-epic' : 'complete-board',
+        projectKey: this.mapping.projectKey,
+        boardId: boardId == null ? null : String(boardId),
+        observedEpicKeys,
+        activeEpicKeys: dataset.epics.map((epic) => epic.key),
+        complete: true,
+      },
+    };
   }
 }
