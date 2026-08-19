@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { TeamMember } from '@ecp/shared';
 import type { AvailabilityKind } from '../lib/availability';
 import { KIND_LABEL } from '../lib/availability';
+import { DatePicker } from './DatePicker';
 
 export interface NewAvailability {
   memberId: string;
@@ -95,11 +96,11 @@ export function AddAvailabilityModal({ members, onClose, onAdd }: AddAvailabilit
           </label>
           <label className="control">
             <span>Start</span>
-            <input type="date" value={start} data-testid="modal-start" onChange={(e) => setStart(e.target.value)} />
+            <DatePicker value={start} inputTestId="modal-start" ariaLabel="Start date" onChange={setStart} />
           </label>
           <label className="control">
             <span>End</span>
-            <input type="date" value={end} data-testid="modal-end" onChange={(e) => setEnd(e.target.value)} />
+            <DatePicker value={end} min={start} inputTestId="modal-end" ariaLabel="End date" onChange={setEnd} />
           </label>
           {kind === 'velocity' && (
             <label className="control">

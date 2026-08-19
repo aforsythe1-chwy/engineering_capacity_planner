@@ -7,6 +7,7 @@ import { EpicPicker } from './components/EpicPicker';
 import { GanttBoard } from './components/GanttBoard';
 import { JiraRequestDebugToast } from './components/JiraRequestDebugToast';
 import { PortfolioOverview } from './components/PortfolioOverview';
+import { PortfolioCalendarPage } from './components/PortfolioCalendarPage';
 import { SyncButton } from './components/SyncButton';
 import { TeamPage } from './components/TeamPage';
 import { RunStandupPage } from './components/RunStandupPage';
@@ -15,10 +16,9 @@ import { buildPortfolioOverview } from './lib/portfolioOverview';
 import { makeDependencyScope, makeGanttScope } from './lib/plannerPageScopes';
 import { buildPlannerScope, type Scenario } from './lib/projection';
 import { type PlannerTab, usePlannerRoute } from './lib/router';
-import { formatDate } from './lib/format';
+import { effectivePlanningDate } from './lib/planningDate';
 
-function currentIsoDate(): string { return new Date().toISOString().slice(0, 10); }
-const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Timeline'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['team', 'Team'], ['standup', 'Standup'], ['configuration', 'Configuration']];
+const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Calendar'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['team', 'Team'], ['standup', 'Standup'], ['configuration', 'Configuration']];
 
 export function App() {
   const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; jiraRequestDebug: boolean }>({ status: 'loading' });
@@ -29,7 +29,8 @@ export function App() {
 }
 
 function Planner({ dataset, source, dataSource, onReload }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void> }) {
-  const projection = useMemo(() => projectPortfolioFromDataset(dataset, currentIsoDate()), [dataset]);
+  const today = useMemo(() => effectivePlanningDate(dataset), [dataset]);
+  const projection = useMemo(() => projectPortfolioFromDataset(dataset, today), [dataset, today]);
   const portfolio = useMemo(() => buildPortfolioOverview(dataset, projection), [dataset, projection]);
   const activeKeys = useMemo(() => new Set(portfolio.pickerOptions.map((epic) => epic.key)), [portfolio]);
   const teamKeys = useMemo(() => new Set(dataset.teams.map((team) => team.id)), [dataset]);
@@ -44,7 +45,7 @@ function Planner({ dataset, source, dataSource, onReload }: { dataset: DomainDat
   return <AppShell dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} pickerOptions={portfolio.pickerOptions} selectedKeys={route.epics} onSelect={changeFilter} tab={route.tab} onTabChange={changeTab}>
     {route.invalidKeys.length > 0 && <div className="panel config-notice" role="status">{route.invalidKeys.join(', ')} is no longer tracked, so you are viewing all tracked epics.</div>}
     {route.tab !== 'standup' && <ScopeSummary selectedKeys={route.epics} activeCount={plannerScope.activeEpics.length} />}
-    <PlannerPage dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} tab={route.tab} teamId={route.team ?? dataset.teams[0]?.id ?? null} selectedKeys={route.epics} scope={plannerScope} projection={projection} selection={selection} onSelect={changeFilter} onTeamChange={changeTeam} />
+    <PlannerPage dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} tab={route.tab} teamId={route.team ?? dataset.teams[0]?.id ?? null} selectedKeys={route.epics} scope={plannerScope} projection={projection} today={today} selection={selection} onSelect={changeFilter} onTeamChange={changeTeam} />
   </AppShell>;
 }
 
@@ -56,25 +57,19 @@ function ScopeSummary({ selectedKeys, activeCount }: { selectedKeys: string[]; a
   return <p className="scope-summary" role="status">{selectedKeys.length ? `Showing ${selectedKeys.join(', ')}; shared capacity still includes all ${activeCount} active epics.` : `Showing all ${activeCount} active epics.`}</p>;
 }
 
-function PlannerPage({ dataset, source, dataSource, onReload, tab, teamId, selectedKeys, scope, projection, selection, onSelect, onTeamChange }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void>; tab: PlannerTab; teamId: string | null; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void; onTeamChange: (teamId: string) => void }) {
-  if (tab === 'overview') return <PortfolioOverview dataset={dataset} selectedKeys={selectedKeys} onSelect={(key) => onSelect([key])} />;
-  if (tab === 'timeline') return <PortfolioTimeline dataset={dataset} projection={projection} selectedKeys={selectedKeys} />;
+function PlannerPage({ dataset, source, dataSource, onReload, tab, teamId, selectedKeys, scope, projection, today, selection, onSelect, onTeamChange }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void>; tab: PlannerTab; teamId: string | null; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; today: string; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void; onTeamChange: (teamId: string) => void }) {
+  if (tab === 'overview') return <PortfolioOverview dataset={dataset} projection={projection} selectedKeys={selectedKeys} onSelect={(key) => onSelect([key])} />;
+  if (tab === 'timeline') return <PortfolioCalendarPage dataset={dataset} projection={projection} selectedKeys={selectedKeys} today={today} editable={source === 'api'} onReload={onReload} />;
   if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
   if (tab === 'team') return <TeamPage dataset={dataset} teamId={teamId} editable={source === 'api'} onReload={onReload} onTeamChange={onTeamChange} />;
   if (tab === 'standup') return <RunStandupPage dataset={dataset} teamId={teamId} editable={source === 'api'} onTeamChange={onTeamChange} />;
   if (tab === 'dependencies') {
     const displayScope = makeDependencyScope(dataset, scope);
-    const scenario: Scenario = { today: displayScope.planningToday ?? currentIsoDate(), cutItemKeys: selection.cutItemKeys, doneItemKeys: selection.doneItemKeys, greenMinBufferDays: displayScope.defaults.greenMinBufferDays, oncallMultiplier: displayScope.defaults.oncallMultiplier };
+    const scenario: Scenario = { today: displayScope.planningToday ?? today, cutItemKeys: selection.cutItemKeys, doneItemKeys: selection.doneItemKeys, greenMinBufferDays: displayScope.defaults.greenMinBufferDays, oncallMultiplier: displayScope.defaults.oncallMultiplier };
     return <DependencyGraph scope={displayScope} scenario={scenario} />;
   }
   const ganttScope = makeGanttScope(dataset, scope);
   return <><div className="panel gantt-context" role="status">Weekly load and capacity include the full active portfolio. {selectedKeys.length ? 'Only selected epic work is shown below.' : ''}</div><GanttBoard scope={ganttScope} source={source} /></>;
 }
-
-function PortfolioTimeline({ dataset, projection, selectedKeys }: { dataset: DomainDataset; projection: ReturnType<typeof projectPortfolioFromDataset>; selectedKeys: string[] }) {
-  const results = projection.epics.filter((result) => !selectedKeys.length || selectedKeys.includes(result.epicKey));
-  return <main className="portfolio-timeline" data-testid="portfolio-timeline"><section className="panel"><div className="section-title"><h2>Portfolio timeline</h2><span className="hint">Each lane uses the shared portfolio projection; selecting an epic expands its context without granting extra capacity.</span></div>{results.map((result) => { const epic = dataset.epics.find((entry) => entry.key === result.epicKey); const gate = dataset.milestones.find((item) => item.epicKey === result.epicKey && item.isGating); const ongoing = dataset.portfolioEpics?.find((entry) => entry.epicKey === result.epicKey)?.planningKind === 'ongoing'; return <article className={`timeline-lane health-${result.health}`} key={result.epicKey}><strong>{result.epicKey} — {epic?.title}</strong>{ongoing ? <><span>Ongoing capacity work</span><span>{result.reason}</span></> : <><span>Target: {gate ? formatDate(gate.date) : 'Needs target'}</span><span>Projected: {result.projectedDevCompleteDate ? formatDate(result.projectedDevCompleteDate) : 'Not forecast'}</span><span>{result.bufferWorkingDays === null ? result.reason : `${result.bufferWorkingDays} working days buffer`}</span></>}</article>; })}</section></main>;
-}
-
 
 function EmptyLivePlanner({ dataset, source, dataSource, onReload }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void> }) { return <div className="app"><header className="app-header"><div><h1>Engineering Capacity Planner</h1><div className="epic-title">No capacity plan loaded yet</div></div><SyncButton dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} onGoToSetup={() => undefined} /></header><div className="panel config-notice" data-testid="empty-live-notice">Finish Jira setup below, then sync to import the first capacity plan.</div><Configuration dataset={dataset} teamId={null} onFilter={() => undefined} editable={source === 'api'} dataSource={dataSource} onReload={onReload} /></div>; }

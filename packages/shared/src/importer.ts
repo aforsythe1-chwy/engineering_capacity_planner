@@ -1,5 +1,22 @@
 import type { DomainDataset } from './domain.js';
 
+/** The completeness boundary used by a planner-fact synchronization. */
+export interface SyncScope {
+  kind: 'complete-board' | 'complete-single-epic' | 'complete-dataset';
+  projectKey: string | null;
+  boardId: string | null;
+  observedEpicKeys: string[];
+  activeEpicKeys: string[];
+  complete: true;
+}
+
+/** A complete source result suitable for reconciling missing Jira facts. */
+export interface SyncSnapshot {
+  dataset: DomainDataset;
+  source: 'jira' | 'synthetic';
+  scope: SyncScope;
+}
+
 /**
  * The single contract every data source implements (project plan §7).
  *
@@ -15,4 +32,9 @@ export interface Importer {
   readonly name: string;
   /** Produce a complete, self-consistent {@link DomainDataset}. */
   fetch(): Promise<DomainDataset>;
+  /**
+   * Full-sync contract. Older and synthetic importers can expose only fetch;
+   * the coordinator converts those complete datasets into a complete snapshot.
+   */
+  fetchSyncSnapshot?(): Promise<SyncSnapshot>;
 }

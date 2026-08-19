@@ -14,6 +14,7 @@ function sortDataset(data: ReturnType<typeof generateSyntheticDataset>) {
     oncall: [...data.oncall].sort(byKey((o) => o.id)),
     epics: [...data.epics].sort(byKey((e) => e.key)),
     portfolioEpics: [...(data.portfolioEpics ?? [])].sort(byKey((p) => p.epicKey)),
+    epicEstimates: [...(data.epicEstimates ?? [])].sort(byKey((e) => e.epicKey)),
     epicSmes: [...(data.epicSmes ?? [])].sort(byKey((s) => `${s.epicKey}:${s.rank}`)),
     milestones: [...data.milestones].sort(byKey((m) => m.id)),
     stories: [...data.stories].sort(byKey((s) => s.key)),
@@ -60,6 +61,15 @@ describe('writeDataset / readDataset', () => {
     }
     expect(readBack.workItems[0]!.jiraSprintAssigned).toBe(false);
     expect(readBack.workItems[1]!.jiraSprintAssigned).toBe(true);
+  });
+
+  it('round-trips explicit zero and positive unrefined estimates without fabricating absent rows', () => {
+    const db = openDatabase();
+    const original = generateSyntheticDataset({ seed: 8 });
+    original.epicEstimates = [{ epicKey: original.epics[0]!.key, unrefinedPoints: 0, reviewedFactBasis: { 'CKT-1': null }, reviewedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }];
+    writeDataset(db, original);
+    expect(readDataset(db).epicEstimates).toEqual(original.epicEstimates);
+    db.close();
   });
 
   it('is idempotent: re-writing replaces rather than duplicating', () => {

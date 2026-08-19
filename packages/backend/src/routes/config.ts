@@ -85,4 +85,18 @@ export function registerConfigRoutes(app: FastifyInstance, db: Db): void {
     repo.deleteMilestone(db, req.params.id);
     reply.code(204);
   });
+
+  // --- Portfolio-global important dates -----------------------------------
+  app.post('/api/important-dates', async (req, reply) => {
+    const date = repo.createImportantDate(db, (req.body ?? {}) as never);
+    reply.code(201);
+    return date;
+  });
+  app.put<{ Params: IdParams }>('/api/important-dates/:id', async (req) =>
+    repo.updateImportantDate(db, req.params.id, (req.body ?? {}) as never),
+  );
+  app.delete<{ Params: IdParams }>('/api/important-dates/:id', async (req, reply) => {
+    repo.deleteImportantDate(db, req.params.id);
+    reply.code(204);
+  });
 }

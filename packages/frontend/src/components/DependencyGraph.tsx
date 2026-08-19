@@ -18,24 +18,30 @@ interface DependencyGraphProps {
  */
 export function DependencyGraph({ scope, scenario }: DependencyGraphProps) {
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(true);
   const layout = useMemo(
-    () => buildGraphLayout(scope, scenario, focusKey),
-    [scope, scenario, focusKey],
+    () => buildGraphLayout(scope, scenario, focusKey, { showDone }),
+    [scope, scenario, focusKey, showDone],
   );
   const { nodes, edges, width, height, analysis } = layout;
+  const activeFocusKey = layout.focusKey;
 
   const toggleFocus = (key: string) => setFocusKey((prev) => (prev === key ? null : key));
 
   // The leaderboard is always ranked over the whole epic, not the focused view.
-  const fullLeaderboard = useMemo(
-    () => buildGraphLayout(scope, scenario, null).analysis.leaderboard,
-    [scope, scenario],
+  const fullLayout = useMemo(
+    () => buildGraphLayout(scope, scenario, null, { showDone }),
+    [scope, scenario, showDone],
   );
-  const topBlockers = fullLeaderboard.filter((n) => n.transitiveDependents > 0).slice(0, 5);
-  const titleByKey = useMemo(
-    () => new Map(scope.workItems.map((w) => [w.key, w.title])),
-    [scope],
-  );
+  const topBlockers = fullLayout.recommendations.slice(0, 5);
+
+  const handleShowDoneChange = (checked: boolean) => {
+    if (!checked && focusKey) {
+      const focused = scope.workItems.find((item) => item.key === focusKey);
+      if (focused && (scenario.doneItemKeys.has(focused.key) || focused.status === 'Done')) setFocusKey(null);
+    }
+    setShowDone(checked);
+  };
 
   if (scope.workItems.length === 0) {
     return (
@@ -54,16 +60,27 @@ export function DependencyGraph({ scope, scenario }: DependencyGraphProps) {
         <div className="section-title">
           <h2>Dependency graph</h2>
           <span className="hint">
-            {focusKey
-              ? 'Showing one ticket’s dependency neighbourhood. Click another node to jump, or “Show all”.'
+            {activeFocusKey
+              ? 'Showing one ticket’s dependency neighbourhood. Click another node to jump, or “Show full graph”.'
               : 'Arrows point from a blocker to the work it unblocks. Click a ticket to focus on its subtree.'}
           </span>
         </div>
 
-        {focusKey && (
+        <label className="graph-control">
+          <input
+            type="checkbox"
+            checked={showDone}
+            disabled={fullLayout.doneCount === 0}
+            onChange={(event) => handleShowDoneChange(event.target.checked)}
+            data-testid="graph-show-done"
+          />
+          <span>Show done tickets ({fullLayout.doneCount})</span>
+        </label>
+
+        {activeFocusKey && (
           <div className="graph-focus-banner" data-testid="graph-focus-banner">
             <span>
-              Focused on <strong>{focusKey}</strong> — {nodes.length} ticket
+              Focused on <strong>{activeFocusKey}</strong> — {nodes.length} ticket
               {nodes.length === 1 ? '' : 's'} in its subtree (blockers + what it unblocks).
             </span>
             <button
@@ -72,7 +89,7 @@ export function DependencyGraph({ scope, scenario }: DependencyGraphProps) {
               data-testid="graph-show-all"
               onClick={() => setFocusKey(null)}
             >
-              Show all
+              Show full graph
             </button>
           </div>
         )}
@@ -86,7 +103,17 @@ export function DependencyGraph({ scope, scenario }: DependencyGraphProps) {
 
         <GraphLegend />
 
-        <div className="graph-scroll">
+        {nodes.length === 0 ? (
+          <div className="graph-empty" data-testid="dependency-graph-empty">
+            No unfinished tickets are visible.{' '}
+            {!showDone && (
+              <button type="button" className="link-btn" onClick={() => setShowDone(true)}>
+                Show done tickets
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="graph-scroll">
           <svg
             className="dependency-svg"
             width={width}
@@ -116,14 +143,15 @@ export function DependencyGraph({ scope, scenario }: DependencyGraphProps) {
             {nodes.map((n) => (
               <GraphNode key={n.key} node={n} onFocus={toggleFocus} />
             ))}
-          </svg>
-        </div>
+            </svg>
+          </div>
+        )}
       </div>
 
       <div className="panel">
         <div className="section-title">
           <h2>Work these next</h2>
-          <span className="hint">Highest-leverage blockers — finishing them unblocks the most.</span>
+          <span className="hint">Highest-leverage blockers — finishing them unblocks the most unfinished work.</span>
         </div>
         <ol className="leverage-list" data-testid="leverage-list">
           {topBlockers.map((n) => (
@@ -143,14 +171,15 @@ export function DependencyGraph({ scope, scenario }: DependencyGraphProps) {
               >
                 <span className="badge high-leverage">unblocks {n.transitiveDependents}</span>
                 <JiraKeyLink jiraKey={n.key} />
-                <span className="leverage-title">{titleByKey.get(n.key)}</span>
+                <span className="leverage-title">{n.title}</span>
                 <span className="hint">
-                  {n.directDependents} direct · {n.transitiveDependents} total
+                  {n.directDependents} direct · {n.transitiveDependents} remaining
                 </span>
               </div>
             </li>
           ))}
         </ol>
+        {topBlockers.length === 0 && <p className="hint" data-testid="no-unfinished-blockers">No unfinished blockers to recommend.</p>}
       </div>
     </>
   );
@@ -169,7 +198,7 @@ function GraphLegend() {
         <span className="swatch tier-none" /> Blocks nothing
       </span>
       <span className="legend-item">
-        <span className="swatch is-done" /> Done
+        <span className="swatch is-done" /> Done context
       </span>
     </div>
   );
@@ -215,7 +244,7 @@ function GraphNode({ node, onFocus }: { node: LayoutNode; onFocus: (key: string)
         {'\n'}
         {node.points} pt · {node.status}
         {'\n'}
-        unblocks {node.transitiveDependents} item{node.transitiveDependents === 1 ? '' : 's'} (
+        unblocks {node.transitiveDependents} unfinished item{node.transitiveDependents === 1 ? '' : 's'} (
         {node.directDependents} direct)
       </title>
       <rect width={node.width} height={node.height} rx={9} className="node-box" />

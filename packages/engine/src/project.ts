@@ -28,6 +28,12 @@ export interface ProjectionInput {
   velocityOverrides?: VelocityOverride[];
   /** The epic's work items. Remaining points are derived from their statuses. */
   workItems: WorkItem[];
+  /** Local estimate for work not already represented by pointed Jira items. */
+  unrefinedRemainingPoints?: number;
+  /** True when a saved unrefined estimate acknowledges unestimated Jira work. */
+  unestimatedWorkCovered?: boolean;
+  /** True when an active epic has no acknowledged basis for its remaining work. */
+  requiresEstimateAcknowledgement?: boolean;
   /** The gating "relevant day" the verdict is measured against. */
   gatingDate: IsoDate;
   /** Optional overrides for any engine knob. */
@@ -46,6 +52,10 @@ export interface SprintProjection {
 export interface ProjectionResult {
   /** Points not yet done. */
   remainingPoints: number;
+  jiraEstimatedRemainingPoints: number;
+  unrefinedRemainingPoints: number;
+  modeledRemainingPoints: number;
+  unestimatedJiraItems: number;
   /** Date the remaining work is projected to finish, or `null` if unreachable. */
   projectedDevCompleteDate: IsoDate | null;
   gatingDate: IsoDate;
@@ -81,8 +91,11 @@ export function remainingPoints(items: readonly WorkItem[]): number {
  */
 export function project(input: ProjectionInput): ProjectionResult {
   const cfg: EngineConfig = { ...DEFAULT_ENGINE_CONFIG, ...input.config };
-  const remaining = remainingPoints(input.workItems);
-  const unestimated = input.workItems.some((item) => item.status !== 'Done' && item.isEstimated === false);
+  const jiraEstimatedRemainingPoints = remainingPoints(input.workItems.filter((item) => item.isEstimated !== false));
+  const unestimatedJiraItems = input.workItems.filter((item) => item.status !== 'Done' && item.isEstimated === false).length;
+  const unrefinedRemainingPoints = input.unrefinedRemainingPoints ?? 0;
+  const remaining = jiraEstimatedRemainingPoints + unrefinedRemainingPoints;
+  const needsEstimates = (unestimatedJiraItems > 0 && !input.unestimatedWorkCovered) || Boolean(input.requiresEstimateAcknowledgement);
 
   const ctx = buildCapacityContext({
     members: input.members,
@@ -112,8 +125,8 @@ export function project(input: ProjectionInput): ProjectionResult {
   }
 
   // --- Buffer + verdict. ---------------------------------------------------
-  const { verdict, reason, bufferWorkingDays } = unestimated
-    ? { verdict: 'needs-estimates' as Verdict, bufferWorkingDays: null, reason: 'Remaining work contains unestimated item(s), so the forecast is incomplete.' }
+  const { verdict, reason, bufferWorkingDays } = needsEstimates
+    ? { verdict: 'needs-estimates' as Verdict, bufferWorkingDays: null, reason: 'Remaining work needs an acknowledged unrefined-work estimate before the forecast is complete.' }
     : classify(
     projectedDevCompleteDate,
     remaining,
@@ -140,6 +153,10 @@ export function project(input: ProjectionInput): ProjectionResult {
 
   return {
     remainingPoints: remaining,
+    jiraEstimatedRemainingPoints,
+    unrefinedRemainingPoints,
+    modeledRemainingPoints: remaining,
+    unestimatedJiraItems,
     projectedDevCompleteDate,
     gatingDate: input.gatingDate,
     bufferWorkingDays,

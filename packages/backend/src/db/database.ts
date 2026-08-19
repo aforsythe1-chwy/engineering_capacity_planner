@@ -55,6 +55,10 @@ function migrate(db: Db): void {
   ensureColumn(db, 'epic', 'last_seen_at', 'TEXT');
   ensureColumn(db, 'work_item', 'is_estimated', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'work_item', 'jira_sprint_assigned', 'INTEGER');
+  ensureColumn(db, 'bandwidth_check_in', 'session_id', 'TEXT');
+  ensureColumn(db, 'standup_session', 'committed_at', 'TEXT');
+  ensureColumn(db, 'global_important_date', 'notes', 'TEXT');
+  ensureColumn(db, 'global_important_date', 'link_url', 'TEXT');
   // Older SQLite tables cannot gain this CHECK constraint additively. The
   // repository validates values as well; fresh databases retain the check.
   ensureColumn(db, 'portfolio_epic', 'planning_kind', "TEXT NOT NULL DEFAULT 'timeline'");

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { DomainDataset, IsoDate, TeamMember, Weekday } from '@ecp/shared';
+import type { DomainDataset, TeamMember, Weekday } from '@ecp/shared';
 import { effectivePortfolioEpic, globalStringSetting, SETTING_KEYS } from '@ecp/shared';
-import { formatDate } from '../lib/format';
 import { memberColorMap } from '../lib/memberColors';
 import * as api from '../data/api';
 import { MemberAvatar } from './MemberAvatar';
@@ -24,7 +23,6 @@ interface ConfigurationProps {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const todayIso = (): IsoDate => new Date().toISOString().slice(0, 10);
 
 /** Read a JSON-encoded global setting, or `fallback` when absent. */
 function settingValue<T>(dataset: DomainDataset, key: string, fallback: T): T {
@@ -414,62 +412,6 @@ function MemberRow({ member, color, disabled, run }: { member: TeamMember; color
         remove
       </button>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Epic milestones ("relevant days")
-// ---------------------------------------------------------------------------
-export function MilestonesSection({ dataset, epicKey, disabled, run }: {
-  dataset: DomainDataset; epicKey: string; disabled: boolean; run: Run;
-}) {
-  const [name, setName] = useState('');
-  const [date, setDate] = useState(todayIso());
-  if (effectivePortfolioEpic(dataset, epicKey).planningKind === 'ongoing') {
-    return <section className="panel"><SectionTitle title="Relevant days" hint="Ongoing epics do not use launch or gating dates. Existing relevant days are preserved and return if this epic is changed back to Timeline." /></section>;
-  }
-  const milestones = dataset.milestones
-    .filter((m) => m.epicKey === epicKey)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  return (
-    <section className="panel">
-      <SectionTitle title="Relevant days" hint="The epic's key dates. Exactly one is the gating day that drives the verdict." />
-      <div className="config-list" data-testid="cfg-milestones">
-        {milestones.map((m) => (
-          <div className={`config-row${m.isGating ? ' gating' : ''}`} key={m.id} data-testid={`cfg-milestone-${m.id}`}>
-            <label className="inline-check" title="Gating day">
-              <input type="radio" name="gating" checked={m.isGating} disabled={disabled || m.isGating}
-                onChange={() => run(() => api.updateMilestone(m.id, { isGating: true }))} />
-              gate
-            </label>
-            <span className="config-primary">{m.name}</span>
-            <span className="unit">{formatDate(m.date)}</span>
-            <button type="button" className="link-btn danger" disabled={disabled || m.isGating}
-              title={m.isGating ? 'Mark another day as the gate first' : undefined}
-              onClick={() => run(() => api.deleteMilestone(m.id))}>
-              remove
-            </button>
-          </div>
-        ))}
-      </div>
-      <div className="controls config-add">
-        <Field label="Name">
-          <input type="text" value={name} disabled={disabled} data-testid="cfg-milestone-name" placeholder="e.g. Code freeze"
-            onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Date">
-          <input type="date" value={date} disabled={disabled} onChange={(e) => setDate(e.target.value)} />
-        </Field>
-        <button type="button" className="btn" disabled={disabled || name.trim() === ''} data-testid="cfg-milestone-add"
-          onClick={() => run(async () => {
-            await api.createMilestone(epicKey, { name: name.trim(), date });
-            setName('');
-          })}>
-          Add relevant day
-        </button>
-      </div>
-    </section>
   );
 }
 

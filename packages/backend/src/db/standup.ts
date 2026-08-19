@@ -1,6 +1,7 @@
 /** Durable, focused persistence for the resumable standup workflow. */
 import { randomUUID } from 'node:crypto';
-import type { StandupMemberTicketContext, StandupNote, StandupParticipant, StandupParticipantDisposition, StandupSession } from '@ecp/shared';
+import type { BandwidthCheckIn, StandupMemberTicketContext, StandupNote, StandupParticipant, StandupParticipantDisposition, StandupSession } from '@ecp/shared';
+import { deleteBandwidthCheckIn, upsertBandwidthCheckIn } from './bandwidth.js';
 import type { Db } from './database.js';
 import { badRequest, conflict, notFound } from '../http-error.js';
 
@@ -9,7 +10,7 @@ const MAX_NOTE_LENGTH = 4_000;
 const dispositions = new Set<StandupParticipantDisposition>(['completed', 'skipped']);
 const now = () => new Date().toISOString();
 
-export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; }
+export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
 
 function dateOf(value: unknown): string {
   if (typeof value !== 'string' || !ISO_DATE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) throw badRequest('date must be an ISO date (YYYY-MM-DD)');
@@ -20,7 +21,7 @@ function expectedRevision(value: unknown): number {
   return value as number;
 }
 function sessionRow(row: any): StandupSession {
-  return { id: row.id, teamId: row.team_id, date: row.standup_date, sprintId: row.sprint_id ?? null, sprintName: row.sprint_name ?? null, status: row.status, startedAt: row.started_at, updatedAt: row.updated_at, completedAt: row.completed_at ?? null, revision: row.revision };
+  return { id: row.id, teamId: row.team_id, date: row.standup_date, sprintId: row.sprint_id ?? null, sprintName: row.sprint_name ?? null, status: row.status, startedAt: row.started_at, updatedAt: row.updated_at, completedAt: row.completed_at ?? null, committedAt: row.committed_at ?? null, revision: row.revision };
 }
 function participantRow(row: any): StandupParticipant {
   return { sessionId: row.session_id, memberId: row.member_id, memberName: row.member_name, position: row.position, disposition: row.disposition, resolvedAt: row.resolved_at ?? null };
@@ -37,8 +38,10 @@ function notesFor(db: Db, sessionId: string): StandupNote[] {
 }
 export function getStandup(db: Db, id: string): StandupAggregate {
   const row = getSessionRow(db, id);
-  return { session: sessionRow(row), participants: db.prepare('SELECT * FROM standup_participant WHERE session_id = ? ORDER BY position').all(id).map(participantRow), notes: notesFor(db, id) };
+  const checkIns = db.prepare('SELECT * FROM bandwidth_check_in WHERE session_id = ? ORDER BY member_id').all(id).map((entry: any) => ({ memberId: entry.member_id, date: entry.check_in_date, sessionId: entry.session_id, feeling: entry.feeling, note: entry.note ?? null, createdAt: entry.created_at, updatedAt: entry.updated_at }));
+  return { session: sessionRow(row), participants: db.prepare('SELECT * FROM standup_participant WHERE session_id = ? ORDER BY position').all(id).map(participantRow), notes: notesFor(db, id), checkIns };
 }
+export function listStandups(db: Db, teamId: string): StandupSession[] { return db.prepare('SELECT * FROM standup_session WHERE team_id = ? ORDER BY standup_date DESC, started_at DESC').all(teamId).map(sessionRow); }
 
 export function standupMemberJiraContext(db: Db, sessionId: string, memberId: string): { sprintId: string | null; jiraAccountId: string | null } {
   const row = db.prepare(`SELECT s.sprint_id, m.jira_account_id
@@ -87,7 +90,7 @@ export function startStandup(db: Db, input: { teamId?: unknown; date?: unknown }
 }
 
 function assertMutable(row: any, revision: number): void {
-  if (row.status === 'completed') throw conflict('Completed standups are read-only');
+  if (row.status === 'completed' || row.committed_at) throw conflict('Completed or committed standups are read-only');
   if (row.revision !== revision) throw conflict('This standup changed in another tab; reload and try again');
 }
 function touch(db: Db, id: string): void { db.prepare('UPDATE standup_session SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now(), id); }
@@ -133,6 +136,15 @@ export function deleteNote(db: Db, sessionId: string, noteId: string, input: any
   db.transaction(() => { const row = getSessionRow(db, sessionId); assertMutable(row, expectedRevision(input?.expectedRevision)); if (db.prepare('DELETE FROM standup_note WHERE id = ? AND session_id = ?').run(noteId, sessionId).changes !== 1) throw notFound(`Standup note ${noteId} not found`); const rows = db.prepare('SELECT id FROM standup_note WHERE session_id = ? ORDER BY position').all(sessionId) as any[]; const set = db.prepare('UPDATE standup_note SET position = ? WHERE id = ?'); rows.forEach((entry, index) => set.run(index, entry.id)); touch(db, sessionId); })();
   return getStandup(db, sessionId);
 }
+
+export function upsertCheckIn(db: Db, sessionId: string, memberId: string, input: any): BandwidthCheckIn {
+  const row = getSessionRow(db, sessionId); if (row.status !== 'active' || row.committed_at) throw conflict('Check-ins can only change during an active standup');
+  if (!db.prepare('SELECT 1 FROM standup_participant WHERE session_id = ? AND member_id = ?').get(sessionId, memberId)) throw notFound(`Participant ${memberId} not found in standup ${sessionId}`);
+  return upsertBandwidthCheckIn(db, memberId, row.standup_date, { ...input, sessionId });
+}
+export function deleteCheckIn(db: Db, sessionId: string, memberId: string): void { const row = getSessionRow(db, sessionId); if (row.status !== 'active' || row.committed_at) throw conflict('Check-ins can only change during an active standup'); deleteBandwidthCheckIn(db, memberId, row.standup_date); }
+export function commitStandup(db: Db, sessionId: string): StandupAggregate { const row = getSessionRow(db, sessionId); if (row.status !== 'completed') throw conflict('Finish Standup before committing it'); if (!row.committed_at) db.prepare('UPDATE standup_session SET committed_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ?').run(now(), now(), sessionId); return getStandup(db, sessionId); }
+export function deleteStandup(db: Db, sessionId: string): void { db.transaction(() => { const row = getSessionRow(db, sessionId); db.prepare('DELETE FROM bandwidth_check_in WHERE session_id = ?').run(sessionId); db.prepare('DELETE FROM standup_session WHERE id = ?').run(row.id); })(); }
 
 export function finishStandup(db: Db, sessionId: string, input: any): StandupAggregate {
   db.transaction(() => { const row = getSessionRow(db, sessionId); const revision = expectedRevision(input?.expectedRevision); if (row.status === 'completed') { if (row.revision !== revision) throw conflict('This standup changed in another tab; reload and try again'); return; } assertMutable(row, revision); if (row.status !== 'post_standup') throw conflict('Finish Standup is available after all participants are resolved'); const aggregate = getStandup(db, sessionId); const snapshot = { schemaVersion: 1, ...aggregate, completedAt: now() }; db.prepare("UPDATE standup_session SET status = 'completed', completed_at = ?, updated_at = ?, revision = revision + 1, final_schema_version = 1, final_snapshot_json = ? WHERE id = ?").run(snapshot.completedAt, snapshot.completedAt, JSON.stringify(snapshot), sessionId); })();

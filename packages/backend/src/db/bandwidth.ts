@@ -32,6 +32,7 @@ function rowToCheckIn(row: any): BandwidthCheckIn {
   return {
     memberId: row.member_id,
     date: row.check_in_date,
+    sessionId: row.session_id ?? null,
     feeling: row.feeling,
     note: row.note ?? null,
     createdAt: row.created_at,
@@ -65,20 +66,20 @@ export function upsertBandwidthCheckIn(
   db: Db,
   memberId: string,
   date: string,
-  input: { feeling?: unknown; note?: unknown; [key: string]: unknown },
+  input: { feeling?: unknown; note?: unknown; sessionId?: string | null; [key: string]: unknown },
 ): BandwidthCheckIn {
   requireMember(db, memberId);
   const checkInDate = dateOf(date, 'date');
-  if (Object.keys(input).some((key) => key !== 'feeling' && key !== 'note')) throw badRequest('Unknown bandwidth check-in field');
+  if (Object.keys(input).some((key) => key !== 'feeling' && key !== 'note' && key !== 'sessionId')) throw badRequest('Unknown bandwidth check-in field');
   if (!FEELINGS.has(input.feeling as BandwidthFeeling)) throw badRequest('feeling must be red, yellow, green, or purple');
   const note = noteOf(input.note);
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO bandwidth_check_in (member_id, check_in_date, feeling, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO bandwidth_check_in (member_id, check_in_date, session_id, feeling, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(member_id, check_in_date) DO UPDATE SET
-       feeling = excluded.feeling, note = excluded.note, updated_at = excluded.updated_at`,
-  ).run(memberId, checkInDate, input.feeling, note, now, now);
+       session_id = excluded.session_id, feeling = excluded.feeling, note = excluded.note, updated_at = excluded.updated_at`,
+  ).run(memberId, checkInDate, input.sessionId ?? null, input.feeling, note, now, now);
   return rowToCheckIn(db.prepare(
     'SELECT * FROM bandwidth_check_in WHERE member_id = ? AND check_in_date = ?',
   ).get(memberId, checkInDate));

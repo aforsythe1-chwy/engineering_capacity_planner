@@ -2,6 +2,7 @@ import type { DomainDataset, IsoDate } from '@ecp/shared';
 import { SETTING_KEYS } from '@ecp/shared';
 import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from './config.js';
 import { project, type ProjectionResult } from './project.js';
+import { resolveEpicWorkload } from './workload.js';
 
 /**
  * Convenience bridge from a whole {@link DomainDataset} to a projection for one
@@ -30,6 +31,8 @@ export function projectEpicFromDataset(
     dataset.stories.filter((s) => s.epicKey === epicKey).map((s) => s.key),
   );
   const workItems = dataset.workItems.filter((w) => storyKeys.has(w.storyKey));
+  const workload = resolveEpicWorkload(dataset, epicKey);
+  const hasRemainingJiraWork = workItems.some((item) => item.status !== 'Done');
 
   const memberIds = new Set(
     dataset.members.filter((m) => m.teamId === team.id).map((m) => m.id),
@@ -47,6 +50,9 @@ export function projectEpicFromDataset(
     oncall,
     velocityOverrides,
     workItems,
+    unrefinedRemainingPoints: workload.unrefinedRemainingPoints,
+    unestimatedWorkCovered: workload.hasUnrefinedEstimate,
+    requiresEstimateAcknowledgement: !workload.hasUnrefinedEstimate && (!hasRemainingJiraWork || workload.unestimatedJiraItems > 0),
     gatingDate: gating.date,
     config: readEngineConfig(dataset),
   });

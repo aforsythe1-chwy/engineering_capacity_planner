@@ -6,7 +6,7 @@
  * anonymized fixture without re-hitting the API. Lives under `./data/cache/`
  * (covered by the repo's `/data/` gitignore rule).
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { JiraMapping } from './mapping.js';
 import type { JiraIssue, JiraSprint } from './types.js';
@@ -25,6 +25,8 @@ export interface JiraSyncCache {
   storyIssues: JiraIssue[];
   workIssues: JiraIssue[];
   sprints: JiraSprint[];
+  /** Complete multi-epic capture. Legacy top-level fields retain compatibility. */
+  epics?: Array<{ epicIssue: JiraIssue; storyIssues: JiraIssue[]; workIssues: JiraIssue[] }>;
 }
 
 /** Default path beside the SQLite DB: `<db-dir>/cache/jira-last-sync.json`. */
@@ -33,10 +35,12 @@ export function defaultSyncCachePath(dbPath: string): string | null {
   return resolve(dirname(resolve(dbPath)), 'cache', 'jira-last-sync.json');
 }
 
-/** Persist a sync cache atomically enough for local-dev use (mkdir + write). */
+/** Persist a complete cache via temp-file + rename after the DB sync commits. */
 export function writeSyncCache(path: string, cache: JiraSyncCache): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(cache, null, 2)}\n`);
+  const temp = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(temp, `${JSON.stringify(cache, null, 2)}\n`);
+  renameSync(temp, path);
 }
 
 /** Load a previously written sync cache, or throw if missing/invalid. */
