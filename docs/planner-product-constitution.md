@@ -4,7 +4,7 @@
 
 **Adopted:** 2026-08-15
 
-**Last amended:** 2026-08-15 — added Team/Standup and clarified that team-owned signals are not epic-filtered
+**Last amended:** 2026-08-19 — registered Increment Planner as a peer page
 
 **Purpose:** Lightweight product and architecture guardrails. This is not an SDD or Spec Kit
 constitution and creates no required specification process or ceremony.
@@ -13,7 +13,7 @@ constitution and creates no required specification process or ceremony.
 
 ### 1. The planner has one navigation level
 
-Overview, Timeline, Dependencies, Gantt Planner, Team, Standup, and Configuration are peer
+Overview, Timeline, Dependencies, Gantt Planner, Increment Planner, Team, Standup, and Configuration are peer
 pages in one planner. An epic must not become a child application, drill-down mode, or prerequisite
 navigation layer.
 

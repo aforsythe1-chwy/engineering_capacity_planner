@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DomainDataset } from '@ecp/shared';
 import { projectPortfolioFromDataset } from '@ecp/engine';
 import { Configuration } from './components/Configuration';
@@ -17,8 +17,10 @@ import { buildPlannerScope, type Scenario } from './lib/projection';
 import { type PlannerTab, usePlannerRoute } from './lib/router';
 import { formatDate } from './lib/format';
 
+const IncrementPlannerPage = lazy(() => import('./components/IncrementPlannerPage').then((module) => ({ default: module.IncrementPlannerPage })));
+
 function currentIsoDate(): string { return new Date().toISOString().slice(0, 10); }
-const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Timeline'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['team', 'Team'], ['standup', 'Standup'], ['configuration', 'Configuration']];
+const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Timeline'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['increments', 'Increment Planner'], ['team', 'Team'], ['standup', 'Standup'], ['configuration', 'Configuration']];
 
 export function App() {
   const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; jiraRequestDebug: boolean }>({ status: 'loading' });
@@ -62,6 +64,7 @@ function PlannerPage({ dataset, source, dataSource, onReload, tab, teamId, selec
   if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
   if (tab === 'team') return <TeamPage dataset={dataset} teamId={teamId} editable={source === 'api'} onReload={onReload} onTeamChange={onTeamChange} />;
   if (tab === 'standup') return <RunStandupPage dataset={dataset} teamId={teamId} editable={source === 'api'} onTeamChange={onTeamChange} />;
+  if (tab === 'increments') return <Suspense fallback={<div className="panel" role="status">Loading increment canvas…</div>}><IncrementPlannerPage dataset={dataset} selectedKeys={selectedKeys} /></Suspense>;
   if (tab === 'dependencies') {
     const displayScope = makeDependencyScope(dataset, scope);
     const scenario: Scenario = { today: displayScope.planningToday ?? currentIsoDate(), cutItemKeys: selection.cutItemKeys, doneItemKeys: selection.doneItemKeys, greenMinBufferDays: displayScope.defaults.greenMinBufferDays, oncallMultiplier: displayScope.defaults.oncallMultiplier };

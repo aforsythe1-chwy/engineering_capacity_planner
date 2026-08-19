@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type PlannerTab = 'overview' | 'timeline' | 'dependencies' | 'gantt' | 'team' | 'standup' | 'configuration';
+export type PlannerTab = 'overview' | 'timeline' | 'dependencies' | 'gantt' | 'increments' | 'team' | 'standup' | 'configuration';
 export interface PlannerRoute {
   /** Pages and epic selection are intentionally independent. `epics: []` means all active epics. */
   tab: PlannerTab;
@@ -10,7 +10,7 @@ export interface PlannerRoute {
   invalidKeys: string[];
 }
 
-const validTabs = new Set<PlannerTab>(['overview', 'timeline', 'dependencies', 'gantt', 'team', 'standup', 'configuration']);
+const validTabs = new Set<PlannerTab>(['overview', 'timeline', 'dependencies', 'gantt', 'increments', 'team', 'standup', 'configuration']);
 
 export function parsePlannerRoute(search: string, validEpicKeys: Set<string>, validTeamIds = new Set<string>()): PlannerRoute {
   const params = new URLSearchParams(search);

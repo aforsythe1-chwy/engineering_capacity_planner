@@ -1,6 +1,6 @@
 # Increment Planner and Delivery Map - Durable Implementation Plan
 
-**Status:** Proposed for review; no implementation has started
+**Status:** Slice 0 visual prototype implemented; awaiting review before persistence work
 
 **Created:** 2026-08-19
 
@@ -594,6 +594,34 @@ Prototype capabilities:
 Use a synthetic fixture shaped like the PDF (ten zones, external blocker, buffer, cross-zone edges)
 for automated tests. Do not commit Chewy Jira payloads or the source PDF.
 
+#### Slice 0 implementation checkpoint - 2026-08-19
+
+Implemented on `codex/task-manager-diagram-plan`:
+
+- added the canonical `?tab=increments` peer route and **Increment Planner** tab;
+- added React Flow 12.11.3 and ELK 0.12.0;
+- added a bundled NF-2771-shaped sample with four capacity bands, ten increment zones, more than 35
+  Jira-linked cards, solid Jira-style blockers, a dashed local proposal, cross-epic NF-2940 context,
+  a critical red lane, and a green UAT buffer;
+- added in-memory zone creation, dragging, resizing, inspector editing, searchable unassigned tray,
+  click-to-place ticket flow, proposed blocker creation/reconnection/deletion, reset, pan/zoom/minimap,
+  and ELK arrangement within sprint columns;
+- kept Jira-derived edges read-only and all prototype changes local to the browser session;
+- added unit coverage for the fixture, route, placement, and ELK boundary plus browser coverage for
+  editing and desktop/narrow rendering.
+
+Verification at the checkpoint: full-workspace typecheck and production build pass; all 78 frontend
+unit tests pass; both Increment Planner Playwright tests pass in Chrome at desktop and narrow
+viewports. The full repository test command has one repeatable backend-only failure in
+`jira-roundtrip.test.ts` (`placementsPulledDone` is 0 rather than 1); this slice does not modify the
+backend, and the failure remains documented rather than being folded into unrelated prototype work.
+
+This checkpoint deliberately uses the PDF-shaped sample rather than claiming that the current
+`DomainDataset` can reconstruct the engineer's semantic grouping. Remaining Slice 0 review items
+are the real all-active map index, live selected-epic population, ticket-level rather than zone-level
+edge editing, drag-from-tray, zone deletion/undo, and a keyboard Outline workflow. Those should be
+resolved with the review gate before any Slice 1 persistence contract is designed.
+
 **Review gate:** validate interaction vocabulary, zone/card density, edge legibility, sprint-band
 model, tab name, and whether the inspector/tray arrangement feels natural before adding schema.
 
@@ -795,11 +823,11 @@ These do not block the prototype; the plan uses the recommended default in paren
 
 ## 17. Continuation instructions
 
-Current status: research and planning are complete; implementation has not started.
+Current status: research, planning, and the Slice 0 PDF-shaped visual prototype are complete. The
+prototype is intentionally in-memory and is awaiting interaction review.
 
-Next action after plan approval: implement **Slice 0 only** in the existing
-`codex/task-manager-diagram-plan` worktree, then provide a user-specific manual validation walkthrough
-before creating persistence tables.
+Next action after prototype review: incorporate review feedback and close the remaining Slice 0
+interaction gaps, then obtain an explicit go-ahead before creating Slice 1 persistence tables.
 
 Start by inspecting:
 
@@ -815,11 +843,11 @@ packages/frontend/src/lib/gantt.ts
 packages/frontend/src/styles.css
 ```
 
-Then run:
+Prototype dependency install (already completed in this worktree):
 
 ```text
 nvm use
-npm install @xyflow/react elkjs --workspace @ecp/frontend
+npm install @xyflow/react@^12.11.3 elkjs@^0.12.0 --workspace @ecp/frontend
 ```
 
 Do not start Slice 1 until the Slice 0 review gate has resolved the editor layout, sprint-band
