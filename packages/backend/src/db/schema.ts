@@ -232,6 +232,10 @@ CREATE TABLE IF NOT EXISTS standup_note (
   position INTEGER NOT NULL CHECK(position >= 0),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  note_state TEXT NOT NULL DEFAULT 'open' CHECK(note_state IN ('open', 'completed', 'deferred')),
+  completed_at TEXT,
+  deferred_at TEXT,
+  source_note_id TEXT REFERENCES standup_note(id) ON DELETE SET NULL,
   UNIQUE(session_id, position)
 );
 
@@ -240,6 +244,17 @@ CREATE TABLE IF NOT EXISTS standup_note_member (
   member_id TEXT NOT NULL REFERENCES team_member(id) ON DELETE RESTRICT,
   PRIMARY KEY(note_id, member_id)
 );
+
+CREATE TABLE IF NOT EXISTS standup_note_mention (
+  note_id TEXT NOT NULL REFERENCES standup_note(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  mention_kind TEXT NOT NULL CHECK(mention_kind IN ('member', 'group')),
+  mention_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  PRIMARY KEY(note_id, position),
+  UNIQUE(note_id, mention_kind, mention_id)
+);
+
 
 CREATE TABLE IF NOT EXISTS standup_context_snapshot (
   session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE CASCADE,

@@ -287,6 +287,11 @@ const EDITABLE_SETTINGS: Record<string, (value: unknown, key: string) => unknown
   [SETTING_KEYS.JIRA_SPRINT_FIELD]: nullableString,
   [SETTING_KEYS.JIRA_LABELS_FIELD]: nullableString,
   [SETTING_KEYS.STANDUP_STATUS_PRESENTATION]: standupStatusPresentationSetting,
+  [SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS]: (v, k) => assertNumber(v, k, { min: 5, max: 600, int: true }),
+};
+
+const EDITABLE_TEAM_SETTINGS: Record<string, (db: Db, teamId: string, value: unknown, key: string) => unknown> = {
+  [SETTING_KEYS.STANDUP_PSEUDOGROUPS]: (db, teamId, value, key) => standupPseudogroupsSetting(db, teamId, value, key),
 };
 
 /** Epic-scoped settings the Configuration UI may edit. */
@@ -335,6 +340,26 @@ function standupStatusPresentationSetting(value: unknown, field: string): unknow
     return { boardId, boardName, entries };
   });
   return { version: 1, boards };
+}
+
+function standupPseudogroupsSetting(db: Db, teamId: string, value: unknown, field: string): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest(`${field} must be an object`);
+  const doc = value as Record<string, unknown>;
+  if (Object.keys(doc).some((key) => key !== 'version' && key !== 'groups') || doc.version !== 1 || !Array.isArray(doc.groups) || doc.groups.length > 50) throw badRequest(`${field} must be a version 1 groups document with at most 50 groups`);
+  const ids = new Set<string>(); const names = new Set<string>();
+  return { version: 1, groups: doc.groups.map((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw badRequest(`${field}.groups[${index}] must be an object`);
+    const group = raw as Record<string, unknown>;
+    if (Object.keys(group).some((key) => !['id', 'name', 'memberIds'].includes(key)) || !Array.isArray(group.memberIds)) throw badRequest(`${field}.groups[${index}] has unknown or invalid fields`);
+    const id = boundedText(group.id, `${field}.groups[${index}].id`); const name = boundedText(group.name, `${field}.groups[${index}].name`);
+    if (ids.has(id) || names.has(name.toLocaleLowerCase())) throw badRequest(`${field} contains duplicate group IDs or names`);
+    ids.add(id); names.add(name.toLocaleLowerCase());
+    if (group.memberIds.length > 100 || group.memberIds.some((memberId) => typeof memberId !== 'string')) throw badRequest(`${field}.groups[${index}].memberIds must contain at most 100 IDs`);
+    const memberIds = [...new Set(group.memberIds as string[])];
+    if (memberIds.length !== group.memberIds.length) throw badRequest(`${field}.groups[${index}] contains duplicate member IDs`);
+    for (const memberId of memberIds) if (!db.prepare('SELECT 1 FROM team_member WHERE id = ? AND team_id = ?').get(memberId, teamId)) throw badRequest(`${field} members must belong to the selected team`);
+    return { id, name, memberIds };
+  }) };
 }
 
 function boundedText(value: unknown, field: string): string {
@@ -430,6 +455,19 @@ export function upsertEpicSettings(db: Db, epicKey: string, patch: Record<string
         value: r.value,
       }),
     );
+}
+
+/** Upsert allowlisted team settings after validating all group members belong to the team. */
+export function upsertTeamSettings(db: Db, teamId: string, patch: Record<string, unknown>): Setting[] {
+  requireTeam(db, teamId);
+  const entries = Object.entries(patch); if (!entries.length) throw badRequest('No settings provided');
+  const run = db.transaction(() => {
+    const stmt = db.prepare(`INSERT INTO settings (key, scope, scope_id, value) VALUES (?, 'team', ?, ?)
+      ON CONFLICT(key, scope, scope_id) DO UPDATE SET value = excluded.value`);
+    for (const [key, value] of entries) { const validate = EDITABLE_TEAM_SETTINGS[key]; if (!validate) throw badRequest(`Unknown or read-only team setting "${key}"`); stmt.run(key, teamId, JSON.stringify(validate(db, teamId, value, key))); }
+  });
+  run();
+  return db.prepare("SELECT * FROM settings WHERE scope = 'team' AND scope_id = ?").all(teamId).map((r: any): Setting => ({ key: r.key, scope: r.scope, scopeId: r.scope_id, value: r.value }));
 }
 
 // ---------------------------------------------------------------------------

@@ -383,7 +383,15 @@ export interface StandupNote {
   position: number;
   createdAt: string;
   updatedAt: string;
+  state: StandupNoteState;
+  completedAt: string | null;
+  deferredAt: string | null;
+  sourceNoteId: string | null;
+  sourceSessionDate: IsoDate | null;
+  mentions: StandupNoteMention[];
 }
+export type StandupNoteState = 'open' | 'completed' | 'deferred';
+export type StandupNoteMention = { kind: 'member'; id: string; label: string } | { kind: 'group'; id: string; label: string };
 
 export interface StandupTicket {
   key: string;

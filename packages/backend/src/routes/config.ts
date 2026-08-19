@@ -16,6 +16,9 @@ export function registerConfigRoutes(app: FastifyInstance, db: Db): void {
   app.patch('/api/settings', async (req) => ({
     settings: repo.upsertGlobalSettings(db, (req.body ?? {}) as Record<string, unknown>),
   }));
+  app.patch<{ Params: { teamId: string } }>('/api/teams/:teamId/settings', async (req) => ({
+    settings: repo.upsertTeamSettings(db, req.params.teamId, (req.body ?? {}) as Record<string, unknown>),
+  }));
   app.patch<{ Params: { key: string } }>('/api/epics/:key/settings', async (req) => ({
     settings: repo.upsertEpicSettings(db, req.params.key, (req.body ?? {}) as Record<string, unknown>),
   }));

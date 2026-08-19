@@ -16,6 +16,7 @@ import type {
   Team,
   TeamMember,
   VelocityOverride,
+  StandupNoteMention,
 } from '@ecp/shared';
 
 export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
@@ -28,7 +29,12 @@ export const commitStandup = (sessionId: string): Promise<StandupAggregate> => r
 export const deleteStandup = (sessionId: string): Promise<void> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}`);
 export const upsertStandupCheckIn = (sessionId: string, memberId: string, input: { feeling: BandwidthCheckIn['feeling']; note?: string | null }): Promise<BandwidthCheckIn> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(memberId)}`, input);
 export const deleteStandupCheckIn = (sessionId: string, memberId: string): Promise<void> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(memberId)}`);
-export const createStandupNote = (sessionId: string, body: string, allTeam: boolean, memberIds: string[], expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/notes`, { body, audience: { allTeam, memberIds }, expectedRevision });
+export type StandupNoteAudience = { allTeam: true } | { allTeam: false; mentions: Array<Pick<StandupNoteMention, 'kind' | 'id'>> };
+export const createStandupNote = (sessionId: string, body: string, audience: StandupNoteAudience, expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/notes`, { body, audience, expectedRevision });
+export const updateStandupNote = (sessionId: string, noteId: string, body: string, audience: StandupNoteAudience, expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/notes/${encodeURIComponent(noteId)}`, { body, audience, expectedRevision });
+export const deleteStandupNote = (sessionId: string, noteId: string, expectedRevision: number): Promise<StandupAggregate> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}/notes/${encodeURIComponent(noteId)}`, { expectedRevision });
+export const setStandupNoteState = (sessionId: string, noteId: string, state: 'open' | 'completed' | 'deferred', expectedRevision: number): Promise<StandupAggregate> => request('PATCH', `/api/standups/${encodeURIComponent(sessionId)}/notes/${encodeURIComponent(noteId)}/state`, { state, expectedRevision });
+export const reorderStandupNotes = (sessionId: string, noteIds: string[], expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/notes/order`, { noteIds, expectedRevision });
 export const getStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets`);
 export const refreshStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets/refresh`);
 
@@ -64,6 +70,7 @@ export const patchSettings = (patch: Record<string, unknown>): Promise<unknown> 
 
 export const patchEpicSettings = (epicKey: string, patch: Record<string, unknown>): Promise<unknown> =>
   request('PATCH', `/api/epics/${encodeURIComponent(epicKey)}/settings`, patch);
+export const patchTeamSettings = (teamId: string, patch: Record<string, unknown>): Promise<unknown> => request('PATCH', `/api/teams/${encodeURIComponent(teamId)}/settings`, patch);
 
 /** Replace the complete owner-first SME order for an epic. */
 export const replaceEpicSmes = (epicKey: string, memberIds: string[]): Promise<EpicSme[]> =>

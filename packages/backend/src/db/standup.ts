@@ -1,6 +1,7 @@
 /** Durable, focused persistence for the resumable standup workflow. */
 import { randomUUID } from 'node:crypto';
-import type { BandwidthCheckIn, StandupMemberTicketContext, StandupNote, StandupParticipant, StandupParticipantDisposition, StandupSession } from '@ecp/shared';
+import type { BandwidthCheckIn, StandupMemberTicketContext, StandupNote, StandupNoteMention, StandupNoteState, StandupParticipant, StandupParticipantDisposition, StandupSession, StandupPseudogroupsSetting } from '@ecp/shared';
+import { SETTING_KEYS } from '@ecp/shared';
 import { deleteBandwidthCheckIn, upsertBandwidthCheckIn } from './bandwidth.js';
 import type { Db } from './database.js';
 import { badRequest, conflict, notFound } from '../http-error.js';
@@ -32,9 +33,15 @@ function getSessionRow(db: Db, id: string): any {
   return row;
 }
 function notesFor(db: Db, sessionId: string): StandupNote[] {
-  const rows = db.prepare('SELECT * FROM standup_note WHERE session_id = ? ORDER BY position').all(sessionId) as any[];
+  const rows = db.prepare(`SELECT n.*, source_session.standup_date AS source_session_date FROM standup_note n
+    LEFT JOIN standup_note source ON source.id = n.source_note_id LEFT JOIN standup_session source_session ON source_session.id = source.session_id
+    WHERE n.session_id = ? ORDER BY n.position`).all(sessionId) as any[];
   const members = db.prepare('SELECT member_id FROM standup_note_member WHERE note_id = ? ORDER BY member_id');
-  return rows.map((row) => ({ id: row.id, sessionId: row.session_id, body: row.body, allTeam: row.all_team === 1, memberIds: members.all(row.id).map((entry: any) => entry.member_id), position: row.position, createdAt: row.created_at, updatedAt: row.updated_at }));
+  const mentions = db.prepare('SELECT mention_kind, mention_id, label FROM standup_note_mention WHERE note_id = ? ORDER BY position');
+  const legacyLabels = db.prepare('SELECT name FROM team_member WHERE id = ?');
+  return rows.map((row) => { const memberIds = members.all(row.id).map((entry: any) => entry.member_id); const savedMentions = mentions.all(row.id).map((entry: any) => ({ kind: entry.mention_kind, id: entry.mention_id, label: entry.label })) as StandupNoteMention[];
+    return { id: row.id, sessionId: row.session_id, body: row.body, allTeam: row.all_team === 1, memberIds, position: row.position, createdAt: row.created_at, updatedAt: row.updated_at, state: (row.note_state ?? 'open') as StandupNoteState, completedAt: row.completed_at ?? null, deferredAt: row.deferred_at ?? null, sourceNoteId: row.source_note_id ?? null, sourceSessionDate: row.source_session_date ?? null, mentions: savedMentions.length ? savedMentions : memberIds.map((id: string) => ({ kind: 'member' as const, id, label: (legacyLabels.get(id) as any)?.name ?? id })) };
+  });
 }
 export function getStandup(db: Db, id: string): StandupAggregate {
   const row = getSessionRow(db, id);
@@ -70,12 +77,10 @@ export function getMemberTicketContext(db: Db, sessionId: string, memberId: stri
 export function startStandup(db: Db, input: { teamId?: unknown; date?: unknown }): StandupAggregate {
   if (typeof input.teamId !== 'string' || !input.teamId) throw badRequest('teamId is required');
   const date = dateOf(input.date);
-  const existing = db.prepare('SELECT id FROM standup_session WHERE team_id = ? AND standup_date = ?').get(input.teamId, date) as any;
-  if (existing) return getStandup(db, existing.id);
   const create = db.transaction(() => {
     if (!db.prepare('SELECT 1 FROM team WHERE id = ?').get(input.teamId)) throw notFound(`Team ${input.teamId} not found`);
     const again = db.prepare('SELECT id FROM standup_session WHERE team_id = ? AND standup_date = ?').get(input.teamId, date) as any;
-    if (again) return again.id;
+    if (again) { materializeDeferred(db, again.id); return again.id; }
     const timestamp = now(); const id = `standup_${randomUUID()}`;
     const sprint = db.prepare('SELECT id, name FROM sprint WHERE team_id = ? AND start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1').get(input.teamId, date, date) as any;
     db.prepare(`INSERT INTO standup_session (id, team_id, standup_date, sprint_id, sprint_name, status, started_at, updated_at)
@@ -84,9 +89,25 @@ export function startStandup(db: Db, input: { teamId?: unknown; date?: unknown }
     const insert = db.prepare('INSERT INTO standup_participant (session_id, member_id, member_name, position) VALUES (?, ?, ?, ?)');
     members.forEach((member, position) => insert.run(id, member.id, member.name, position));
     if (members.length === 0) db.prepare("UPDATE standup_session SET status = 'post_standup', updated_at = ?, revision = 1 WHERE id = ?").run(timestamp, id);
-    return id;
+    materializeDeferred(db, id); return id;
   });
   return getStandup(db, create());
+}
+
+function materializeDeferred(db: Db, targetId: string): void {
+  const target = getSessionRow(db, targetId); if (target.status === 'completed') return;
+  const origins = db.prepare(`SELECT n.*, s.standup_date AS source_date FROM standup_note n JOIN standup_session s ON s.id = n.session_id
+    WHERE s.team_id = ? AND s.standup_date < ? AND n.note_state = 'deferred' AND NOT EXISTS (SELECT 1 FROM standup_note child WHERE child.source_note_id = n.id)
+    ORDER BY s.standup_date, n.position, n.id`).all(target.team_id, target.standup_date) as any[];
+  if (!origins.length) return;
+  let position = (db.prepare('SELECT COUNT(*) AS n FROM standup_note WHERE session_id = ?').get(targetId) as any).n;
+  const insert = db.prepare(`INSERT INTO standup_note (id, session_id, body, all_team, position, created_at, updated_at, note_state, source_note_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`);
+  for (const origin of origins) { const id = `standup_note_${randomUUID()}`; const timestamp = now(); insert.run(id, targetId, origin.body, origin.all_team, position++, timestamp, timestamp, origin.id);
+    db.prepare('INSERT INTO standup_note_member (note_id, member_id) SELECT ?, member_id FROM standup_note_member WHERE note_id = ?').run(id, origin.id);
+    db.prepare('INSERT INTO standup_note_mention (note_id, position, mention_kind, mention_id, label) SELECT ?, position, mention_kind, mention_id, label FROM standup_note_mention WHERE note_id = ?').run(id, origin.id);
+  }
+  touch(db, targetId);
 }
 
 function assertMutable(row: any, revision: number): void {
@@ -111,30 +132,51 @@ export function resolveParticipant(db: Db, sessionId: string, memberId: string, 
   return getStandup(db, sessionId);
 }
 
-function audience(db: Db, sessionId: string, value: any): { allTeam: boolean; memberIds: string[] } {
+function audience(db: Db, sessionId: string, value: any): { allTeam: boolean; memberIds: string[]; mentions: StandupNoteMention[] } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('audience is required');
-  if (Object.keys(value).some((key) => key !== 'allTeam' && key !== 'memberIds')) throw badRequest('Unknown audience field');
-  if (typeof value.allTeam !== 'boolean' || !Array.isArray(value.memberIds) || value.memberIds.some((id: unknown) => typeof id !== 'string')) throw badRequest('audience must contain allTeam and memberIds');
-  const memberIds = [...new Set(value.memberIds as string[])];
-  if (value.allTeam && memberIds.length) throw badRequest('All team cannot be combined with member tags');
+  if (Object.keys(value).some((key) => key !== 'allTeam' && key !== 'mentions')) throw badRequest('Unknown audience field');
+  if (typeof value.allTeam !== 'boolean' || (!value.allTeam && !Array.isArray(value.mentions))) throw badRequest('audience must contain allTeam or mentions');
   const teamId = getSessionRow(db, sessionId).team_id;
-  for (const memberId of memberIds) if (!db.prepare('SELECT 1 FROM team_member WHERE id = ? AND team_id = ?').get(memberId, teamId)) throw badRequest('Tagged members must belong to the standup team');
-  return { allTeam: value.allTeam, memberIds };
+  if (value.allTeam) return { allTeam: true, memberIds: [], mentions: [] };
+  const raw = value.mentions as any[]; if (!raw.length) throw badRequest('A note must tag at least one audience'); const seen = new Set<string>(); const memberIds = new Set<string>(); const mentions: StandupNoteMention[] = [];
+  const groups = teamGroups(db, teamId);
+  for (const mention of raw) { if (!mention || typeof mention !== 'object' || Object.keys(mention).some((key) => key !== 'kind' && key !== 'id') || typeof mention.id !== 'string' || (mention.kind !== 'member' && mention.kind !== 'group')) throw badRequest('Invalid note mention'); const key = `${mention.kind}:${mention.id}`; if (seen.has(key)) throw badRequest('Duplicate note mention'); seen.add(key);
+    if (mention.kind === 'member') { const member = db.prepare('SELECT name FROM team_member WHERE id = ? AND team_id = ?').get(mention.id, teamId) as any; if (!member) throw badRequest('Tagged members must belong to the standup team'); memberIds.add(mention.id); mentions.push({ kind: 'member', id: mention.id, label: member.name }); }
+    else { const group = groups.find((entry) => entry.id === mention.id); if (!group) throw badRequest('Tagged group must belong to the standup team'); group.memberIds.forEach((id) => memberIds.add(id)); mentions.push({ kind: 'group', id: group.id, label: group.name }); }
+  }
+  return { allTeam: false, memberIds: [...memberIds], mentions };
 }
+function teamGroups(db: Db, teamId: string): StandupPseudogroupsSetting['groups'] { const row = db.prepare("SELECT value FROM settings WHERE key = ? AND scope = 'team' AND scope_id = ?").get(SETTING_KEYS.STANDUP_PSEUDOGROUPS, teamId) as any; try { const value = row ? JSON.parse(row.value) : null; return value?.version === 1 && Array.isArray(value.groups) ? value.groups : []; } catch { return []; } }
 function body(value: unknown): string { if (typeof value !== 'string') throw badRequest('body must be a string'); const trimmed = value.trim(); if (!trimmed) throw badRequest('body must not be empty'); if (trimmed.length > MAX_NOTE_LENGTH) throw badRequest(`body must be at most ${MAX_NOTE_LENGTH} characters`); return trimmed; }
-function writeAudience(db: Db, noteId: string, memberIds: string[]): void { db.prepare('DELETE FROM standup_note_member WHERE note_id = ?').run(noteId); const insert = db.prepare('INSERT INTO standup_note_member (note_id, member_id) VALUES (?, ?)'); memberIds.forEach((id) => insert.run(noteId, id)); }
+function writeAudience(db: Db, noteId: string, selected: { memberIds: string[]; mentions: StandupNoteMention[] }): void { db.prepare('DELETE FROM standup_note_member WHERE note_id = ?').run(noteId); db.prepare('DELETE FROM standup_note_mention WHERE note_id = ?').run(noteId); const insert = db.prepare('INSERT INTO standup_note_member (note_id, member_id) VALUES (?, ?)'); selected.memberIds.forEach((id) => insert.run(noteId, id)); const insertMention = db.prepare('INSERT INTO standup_note_mention (note_id, position, mention_kind, mention_id, label) VALUES (?, ?, ?, ?, ?)'); selected.mentions.forEach((mention, position) => insertMention.run(noteId, position, mention.kind, mention.id, mention.label)); }
 
 export function createNote(db: Db, sessionId: string, input: any): StandupAggregate {
-  db.transaction(() => { const row = getSessionRow(db, sessionId); assertMutable(row, expectedRevision(input?.expectedRevision)); const text = body(input?.body); const selected = audience(db, sessionId, input?.audience); const timestamp = now(); const id = `standup_note_${randomUUID()}`; const position = (db.prepare('SELECT COUNT(*) AS n FROM standup_note WHERE session_id = ?').get(sessionId) as any).n; db.prepare('INSERT INTO standup_note (id, session_id, body, all_team, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, sessionId, text, selected.allTeam ? 1 : 0, position, timestamp, timestamp); writeAudience(db, id, selected.memberIds); touch(db, sessionId); })();
+  db.transaction(() => { const row = getSessionRow(db, sessionId); assertMutable(row, expectedRevision(input?.expectedRevision)); const text = body(input?.body); const selected = audience(db, sessionId, input?.audience); const timestamp = now(); const id = `standup_note_${randomUUID()}`; const position = (db.prepare('SELECT COUNT(*) AS n FROM standup_note WHERE session_id = ?').get(sessionId) as any).n; db.prepare('INSERT INTO standup_note (id, session_id, body, all_team, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, sessionId, text, selected.allTeam ? 1 : 0, position, timestamp, timestamp); writeAudience(db, id, selected); touch(db, sessionId); })();
   return getStandup(db, sessionId);
 }
 export function updateNote(db: Db, sessionId: string, noteId: string, input: any): StandupAggregate {
-  db.transaction(() => { const row = getSessionRow(db, sessionId); assertMutable(row, expectedRevision(input?.expectedRevision)); if (!db.prepare('SELECT 1 FROM standup_note WHERE id = ? AND session_id = ?').get(noteId, sessionId)) throw notFound(`Standup note ${noteId} not found`); const text = body(input?.body); const selected = audience(db, sessionId, input?.audience); db.prepare('UPDATE standup_note SET body = ?, all_team = ?, updated_at = ? WHERE id = ?').run(text, selected.allTeam ? 1 : 0, now(), noteId); writeAudience(db, noteId, selected.memberIds); touch(db, sessionId); })();
+  db.transaction(() => { const row = getSessionRow(db, sessionId); assertMutable(row, expectedRevision(input?.expectedRevision)); if (!db.prepare('SELECT 1 FROM standup_note WHERE id = ? AND session_id = ?').get(noteId, sessionId)) throw notFound(`Standup note ${noteId} not found`); const text = body(input?.body); const selected = audience(db, sessionId, input?.audience); db.prepare('UPDATE standup_note SET body = ?, all_team = ?, updated_at = ? WHERE id = ?').run(text, selected.allTeam ? 1 : 0, now(), noteId); writeAudience(db, noteId, selected); touch(db, sessionId); })();
   return getStandup(db, sessionId);
 }
 export function deleteNote(db: Db, sessionId: string, noteId: string, input: any): StandupAggregate {
   db.transaction(() => { const row = getSessionRow(db, sessionId); assertMutable(row, expectedRevision(input?.expectedRevision)); if (db.prepare('DELETE FROM standup_note WHERE id = ? AND session_id = ?').run(noteId, sessionId).changes !== 1) throw notFound(`Standup note ${noteId} not found`); const rows = db.prepare('SELECT id FROM standup_note WHERE session_id = ? ORDER BY position').all(sessionId) as any[]; const set = db.prepare('UPDATE standup_note SET position = ? WHERE id = ?'); rows.forEach((entry, index) => set.run(index, entry.id)); touch(db, sessionId); })();
   return getStandup(db, sessionId);
+}
+
+export function setNoteState(db: Db, sessionId: string, noteId: string, input: any): StandupAggregate {
+  if (input?.state !== 'open' && input?.state !== 'completed' && input?.state !== 'deferred') throw badRequest('state must be open, completed, or deferred');
+  db.transaction(() => { const session = getSessionRow(db, sessionId); assertMutable(session, expectedRevision(input?.expectedRevision)); const note = db.prepare('SELECT * FROM standup_note WHERE id = ? AND session_id = ?').get(noteId, sessionId) as any; if (!note) throw notFound(`Standup note ${noteId} not found`);
+    if (input.state === 'open' && note.note_state === 'deferred' && db.prepare('SELECT 1 FROM standup_note WHERE source_note_id = ?').get(noteId)) throw conflict('A deferred note cannot be reopened after it has been carried forward');
+    const timestamp = now(); db.prepare(`UPDATE standup_note SET note_state = ?, completed_at = ?, deferred_at = ?, updated_at = ? WHERE id = ?`).run(input.state, input.state === 'completed' ? timestamp : null, input.state === 'deferred' ? timestamp : null, timestamp, noteId); touch(db, sessionId);
+  })(); return getStandup(db, sessionId);
+}
+
+export function reorderNotes(db: Db, sessionId: string, input: any): StandupAggregate {
+  if (!Array.isArray(input?.noteIds) || input.noteIds.some((id: unknown) => typeof id !== 'string')) throw badRequest('noteIds must be an array of IDs');
+  db.transaction(() => { const session = getSessionRow(db, sessionId); assertMutable(session, expectedRevision(input?.expectedRevision)); const current = db.prepare('SELECT id FROM standup_note WHERE session_id = ? ORDER BY position').all(sessionId).map((row: any) => row.id) as string[];
+    if (input.noteIds.length !== current.length || new Set(input.noteIds).size !== current.length || input.noteIds.some((id: string) => !current.includes(id))) throw badRequest('noteIds must contain every current note exactly once');
+    const offset = current.length + 1; const set = db.prepare('UPDATE standup_note SET position = ? WHERE id = ? AND session_id = ?'); current.forEach((id, index) => set.run(offset + index, id, sessionId)); input.noteIds.forEach((id: string, index: number) => set.run(index, id, sessionId)); touch(db, sessionId);
+  })(); return getStandup(db, sessionId);
 }
 
 export function upsertCheckIn(db: Db, sessionId: string, memberId: string, input: any): BandwidthCheckIn {
@@ -147,6 +189,6 @@ export function commitStandup(db: Db, sessionId: string): StandupAggregate { con
 export function deleteStandup(db: Db, sessionId: string): void { db.transaction(() => { const row = getSessionRow(db, sessionId); db.prepare('DELETE FROM bandwidth_check_in WHERE session_id = ?').run(sessionId); db.prepare('DELETE FROM standup_session WHERE id = ?').run(row.id); })(); }
 
 export function finishStandup(db: Db, sessionId: string, input: any): StandupAggregate {
-  db.transaction(() => { const row = getSessionRow(db, sessionId); const revision = expectedRevision(input?.expectedRevision); if (row.status === 'completed') { if (row.revision !== revision) throw conflict('This standup changed in another tab; reload and try again'); return; } assertMutable(row, revision); if (row.status !== 'post_standup') throw conflict('Finish Standup is available after all participants are resolved'); const aggregate = getStandup(db, sessionId); const snapshot = { schemaVersion: 1, ...aggregate, completedAt: now() }; db.prepare("UPDATE standup_session SET status = 'completed', completed_at = ?, updated_at = ?, revision = revision + 1, final_schema_version = 1, final_snapshot_json = ? WHERE id = ?").run(snapshot.completedAt, snapshot.completedAt, JSON.stringify(snapshot), sessionId); })();
+  db.transaction(() => { const row = getSessionRow(db, sessionId); const revision = expectedRevision(input?.expectedRevision); if (row.status === 'completed') { if (row.revision !== revision) throw conflict('This standup changed in another tab; reload and try again'); return; } assertMutable(row, revision); if (row.status !== 'post_standup') throw conflict('Finish Standup is available after all participants are resolved'); const aggregate = getStandup(db, sessionId); const snapshot = { schemaVersion: 2, ...aggregate, completedAt: now() }; db.prepare("UPDATE standup_session SET status = 'completed', completed_at = ?, updated_at = ?, revision = revision + 1, final_schema_version = 2, final_snapshot_json = ? WHERE id = ?").run(snapshot.completedAt, snapshot.completedAt, JSON.stringify(snapshot), sessionId); })();
   return getStandup(db, sessionId);
 }

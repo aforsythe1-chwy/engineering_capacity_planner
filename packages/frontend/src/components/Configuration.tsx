@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DomainDataset, TeamMember, Weekday } from '@ecp/shared';
-import { effectivePortfolioEpic, globalStringSetting, SETTING_KEYS } from '@ecp/shared';
+import { effectivePortfolioEpic, globalStringSetting, SETTING_KEYS, STANDUP_DEFAULTS } from '@ecp/shared';
 import { memberColorMap } from '../lib/memberColors';
 import * as api from '../data/api';
 import { MemberAvatar } from './MemberAvatar';
@@ -105,6 +105,7 @@ export function Configuration({ dataset, teamId, onFilter, editable, dataSource,
         onReload={onReload}
       />
       <StandupStatusConfiguration dataset={dataset} disabled={disabled} editable={editable} run={run} />
+      <StandupConfiguration dataset={dataset} teamId={teamId} disabled={disabled} run={run} />
       <SyncLog
         editable={editable}
         refreshKey={globalStringSetting(dataset.settings, SETTING_KEYS.LAST_SYNCED_AT)}
@@ -112,6 +113,13 @@ export function Configuration({ dataset, teamId, onFilter, editable, dataSource,
       <DatabaseTools editable={editable} onReload={onReload} />
     </div>
   );
+}
+
+function StandupConfiguration({ dataset, teamId, disabled, run }: { dataset: DomainDataset; teamId: string | null; disabled: boolean; run: Run }) {
+  const [threshold, setThreshold] = useState(String(settingValue(dataset, SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS, STANDUP_DEFAULTS.SPEAKER_THRESHOLD_SECONDS)));
+  const [groupsText, setGroupsText] = useState(() => { if (!teamId) return '[]'; const row = dataset.settings.find((s) => s.scope === 'team' && s.scopeId === teamId && s.key === SETTING_KEYS.STANDUP_PSEUDOGROUPS); try { return JSON.stringify(row ? JSON.parse(row.value).groups : [], null, 2); } catch { return '[]'; } });
+  useEffect(() => { setThreshold(String(settingValue(dataset, SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS, STANDUP_DEFAULTS.SPEAKER_THRESHOLD_SECONDS))); }, [dataset]);
+  return <section className="panel standup-settings"><SectionTitle title="Standup settings" hint="The overtime cue is a facilitation aid; speaker time is never saved or reported." /><label className="control"><span>Speaker overtime threshold (seconds)</span><input type="number" min={5} max={600} value={threshold} disabled={disabled} onChange={(event) => setThreshold(event.target.value)} /><small>Default: 45 seconds. The modal adds a contained pixel-fire cue at this threshold.</small></label><div className="controls"><button type="button" className="btn primary" disabled={disabled} onClick={() => run(() => api.patchSettings({ [SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS]: Number(threshold) }))}>Save threshold</button></div>{teamId ? <><label className="control"><span>Team pseudogroups</span><textarea value={groupsText} disabled={disabled} onChange={(event) => setGroupsText(event.target.value)} aria-label="Team pseudogroups JSON" /><small>Enter an ordered JSON list of groups with stable id, name, and memberIds. @All Team is always available and cannot be edited.</small></label><div className="controls"><button type="button" className="btn" disabled={disabled} onClick={() => run(() => api.patchTeamSettings(teamId, { [SETTING_KEYS.STANDUP_PSEUDOGROUPS]: { version: 1, groups: JSON.parse(groupsText) } }))}>Save groups</button></div></> : null}</section>;
 }
 
 export function TrackedEpicsSection({ dataset, disabled, editable, run }: { dataset: DomainDataset; disabled: boolean; editable: boolean; run: (fn: () => Promise<unknown>) => Promise<void> }) {
