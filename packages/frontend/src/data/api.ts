@@ -1,6 +1,8 @@
 import type {
   EpicSme,
+  EpicEstimate,
   EpicMilestone,
+  GlobalImportantDate,
   BandwidthCheckIn,
   StandupNote,
   StandupParticipant,
@@ -14,13 +16,25 @@ import type {
   Team,
   TeamMember,
   VelocityOverride,
+  StandupNoteMention,
 } from '@ecp/shared';
 
-export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; }
+export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
+export const listStandups = (teamId: string): Promise<{ sessions: StandupSession[] }> => request('GET', `/api/standups${qs({ teamId })}`);
+export const getStandup = (sessionId: string): Promise<StandupAggregate> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}`);
 export const startStandup = (teamId: string, date: string): Promise<StandupAggregate> => request('POST', '/api/standups/start', { teamId, date });
 export const resolveStandupParticipant = (sessionId: string, memberId: string, disposition: 'completed' | 'skipped', expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}`, { disposition, expectedRevision });
 export const finishStandup = (sessionId: string, expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/finish`, { expectedRevision });
-export const createStandupNote = (sessionId: string, body: string, allTeam: boolean, memberIds: string[], expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/notes`, { body, audience: { allTeam, memberIds }, expectedRevision });
+export const commitStandup = (sessionId: string): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/commit`);
+export const deleteStandup = (sessionId: string): Promise<void> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}`);
+export const upsertStandupCheckIn = (sessionId: string, memberId: string, input: { feeling: BandwidthCheckIn['feeling']; note?: string | null }): Promise<BandwidthCheckIn> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(memberId)}`, input);
+export const deleteStandupCheckIn = (sessionId: string, memberId: string): Promise<void> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(memberId)}`);
+export type StandupNoteAudience = { allTeam: true } | { allTeam: false; mentions: Array<Pick<StandupNoteMention, 'kind' | 'id'>> };
+export const createStandupNote = (sessionId: string, body: string, audience: StandupNoteAudience, expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/notes`, { body, audience, expectedRevision });
+export const updateStandupNote = (sessionId: string, noteId: string, body: string, audience: StandupNoteAudience, expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/notes/${encodeURIComponent(noteId)}`, { body, audience, expectedRevision });
+export const deleteStandupNote = (sessionId: string, noteId: string, expectedRevision: number): Promise<StandupAggregate> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}/notes/${encodeURIComponent(noteId)}`, { expectedRevision });
+export const setStandupNoteState = (sessionId: string, noteId: string, state: 'open' | 'completed' | 'deferred', expectedRevision: number): Promise<StandupAggregate> => request('PATCH', `/api/standups/${encodeURIComponent(sessionId)}/notes/${encodeURIComponent(noteId)}/state`, { state, expectedRevision });
+export const reorderStandupNotes = (sessionId: string, noteIds: string[], expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/notes/order`, { noteIds, expectedRevision });
 export const getStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets`);
 export const refreshStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets/refresh`);
 
@@ -56,6 +70,7 @@ export const patchSettings = (patch: Record<string, unknown>): Promise<unknown> 
 
 export const patchEpicSettings = (epicKey: string, patch: Record<string, unknown>): Promise<unknown> =>
   request('PATCH', `/api/epics/${encodeURIComponent(epicKey)}/settings`, patch);
+export const patchTeamSettings = (teamId: string, patch: Record<string, unknown>): Promise<unknown> => request('PATCH', `/api/teams/${encodeURIComponent(teamId)}/settings`, patch);
 
 /** Replace the complete owner-first SME order for an epic. */
 export const replaceEpicSmes = (epicKey: string, memberIds: string[]): Promise<EpicSme[]> =>
@@ -110,12 +125,33 @@ export interface JiraSampleResponse {
 }
 
 export interface SyncResponse {
+  runId: string;
   source: string;
   summary: Record<string, number>;
-  changes?: SyncChange[];
-  /** ISO datetime of this sync. */
-  syncedAt?: string;
+  changes: SyncChange[];
+  syncedAt: string;
+  coalesced: boolean;
+  estimateReviews: Array<{ epicKey: string; workload: EpicWorkload }>;
+  warnings: string[];
 }
+
+export interface EstimateReviewChange { key: string; kind: 'new-item' | 'newly-estimated' | 'points-increased'; previousPoints: number | null; currentPoints: number | null; }
+export interface EpicWorkload {
+  epicKey: string;
+  jiraEstimatedRemainingPoints: number;
+  unrefinedRemainingPoints: number;
+  modeledRemainingPoints: number;
+  unestimatedJiraItems: number;
+  hasUnrefinedEstimate: boolean;
+  estimateReviewRequired: boolean;
+  estimateReviewChanges: EstimateReviewChange[];
+  factSignature: string;
+  reviewedAt: string | null;
+}
+
+export const saveEpicEstimate = (epicKey: string, input: { unrefinedPoints: number; expectedFactSignature: string }): Promise<{ estimate: EpicEstimate; workload: EpicWorkload }> =>
+  request('PUT', `/api/epics/${encodeURIComponent(epicKey)}/estimate`, input);
+export const deleteEpicEstimate = (epicKey: string): Promise<void> => request('DELETE', `/api/epics/${encodeURIComponent(epicKey)}/estimate`);
 
 /** Analysis of one specific ticket, for the ticket-driven field mapper. */
 export interface JiraFieldRef {
@@ -368,6 +404,10 @@ export const updateMilestone = (
 
 export const deleteMilestone = (id: string): Promise<void> =>
   request('DELETE', `/api/milestones/${encodeURIComponent(id)}`);
+
+export const createImportantDate = (input: Omit<GlobalImportantDate, 'id'>): Promise<GlobalImportantDate> => request('POST', '/api/important-dates', input);
+export const updateImportantDate = (id: string, patch: Partial<Omit<GlobalImportantDate, 'id'>>): Promise<GlobalImportantDate> => request('PUT', `/api/important-dates/${encodeURIComponent(id)}`, patch);
+export const deleteImportantDate = (id: string): Promise<void> => request('DELETE', `/api/important-dates/${encodeURIComponent(id)}`);
 
 // --- Gantt Planner placements (project plan §6a) ---------------------------
 export const placeWorkItem = (input: {

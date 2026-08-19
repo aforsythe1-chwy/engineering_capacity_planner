@@ -32,6 +32,16 @@ export {
   remainingPoints,
 } from './project.js';
 export { projectEpicFromDataset, readEngineConfig } from './adapter.js';
+export {
+  type EpicWorkload,
+  type EstimateReviewChange,
+  type EstimateReviewChangeKind,
+  remainingFactBasis,
+  factSignature,
+  estimateReviewChanges,
+  epicEstimate,
+  resolveEpicWorkload,
+} from './workload.js';
 export { projectPortfolioFromDataset, type PortfolioProjection, type PortfolioEpicProjection, type PortfolioHealth } from './portfolio.js';
 export {
   type GraphEdge,

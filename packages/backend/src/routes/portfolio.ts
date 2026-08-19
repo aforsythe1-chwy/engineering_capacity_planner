@@ -1,9 +1,9 @@
-import { projectPortfolioFromDataset } from '@ecp/engine';
+import { projectPortfolioFromDataset, remainingFactBasis, resolveEpicWorkload } from '@ecp/engine';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/database.js';
 import { readDataset } from '../db/persist.js';
 import { effectivePortfolioEpic } from '@ecp/shared';
-import { replaceEpicSmes, updatePortfolioEpic } from '../db/repository.js';
+import { deleteEpicEstimate, replaceEpicSmes, saveEpicEstimate, updatePortfolioEpic } from '../db/repository.js';
 import { HttpError } from '../http-error.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -27,4 +27,16 @@ export function registerPortfolioRoutes(app: FastifyInstance, db: Db): void {
   app.put<{ Params: { key: string }; Body: { memberIds?: unknown; [key: string]: unknown } }>('/api/portfolio/epics/:key/smes', async (req) =>
     replaceEpicSmes(db, req.params.key, req.body ?? {}),
   );
+  app.put<{ Params: { key: string }; Body: { unrefinedPoints?: unknown; expectedFactSignature?: unknown; [key: string]: unknown } }>('/api/epics/:key/estimate', async (req) => {
+    const data = readDataset(db);
+    if (typeof req.body?.expectedFactSignature !== 'string') throw new HttpError(400, 'expectedFactSignature must be a string');
+    const workload = resolveEpicWorkload(data, req.params.key);
+    if (workload.factSignature !== req.body.expectedFactSignature) throw new HttpError(409, 'Jira facts changed; reload the estimate review and try again');
+    const estimate = saveEpicEstimate(db, req.params.key, { unrefinedPoints: req.body?.unrefinedPoints, reviewedFactBasis: remainingFactBasis(data, req.params.key) });
+    return { estimate, workload: resolveEpicWorkload(readDataset(db), req.params.key) };
+  });
+  app.delete<{ Params: { key: string } }>('/api/epics/:key/estimate', async (req, reply) => {
+    deleteEpicEstimate(db, req.params.key);
+    reply.code(204);
+  });
 }

@@ -55,12 +55,29 @@ function migrate(db: Db): void {
   ensureColumn(db, 'epic', 'last_seen_at', 'TEXT');
   ensureColumn(db, 'work_item', 'is_estimated', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'work_item', 'jira_sprint_assigned', 'INTEGER');
+  ensureColumn(db, 'bandwidth_check_in', 'session_id', 'TEXT');
+  ensureColumn(db, 'standup_session', 'committed_at', 'TEXT');
+  ensureColumn(db, 'standup_note', 'note_state', "TEXT NOT NULL DEFAULT 'open'");
+  ensureColumn(db, 'standup_note', 'completed_at', 'TEXT');
+  ensureColumn(db, 'standup_note', 'deferred_at', 'TEXT');
+  // SQLite cannot reliably add a self-referencing FK to older tables. Repository
+  // validation and the fresh-schema FK protect the relationship.
+  ensureColumn(db, 'standup_note', 'source_note_id', 'TEXT');
+  ensureColumn(db, 'global_important_date', 'notes', 'TEXT');
+  ensureColumn(db, 'global_important_date', 'link_url', 'TEXT');
   // Older SQLite tables cannot gain this CHECK constraint additively. The
   // repository validates values as well; fresh databases retain the check.
   ensureColumn(db, 'portfolio_epic', 'planning_kind', "TEXT NOT NULL DEFAULT 'timeline'");
   // This index references a column introduced above, so it must be created
   // after additive migrations when opening databases from older releases.
   db.exec('CREATE INDEX IF NOT EXISTS idx_epic_active ON epic(active)');
+  db.exec(`CREATE TABLE IF NOT EXISTS standup_note_mention (
+    note_id TEXT NOT NULL REFERENCES standup_note(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK(position >= 0),
+    mention_kind TEXT NOT NULL CHECK(mention_kind IN ('member', 'group')),
+    mention_id TEXT NOT NULL, label TEXT NOT NULL,
+    PRIMARY KEY(note_id, position), UNIQUE(note_id, mention_kind, mention_id)
+  ); CREATE UNIQUE INDEX IF NOT EXISTS idx_standup_note_source ON standup_note(source_note_id) WHERE source_note_id IS NOT NULL`);
 }
 
 /** Add `column` to `table` if it's not already present. */

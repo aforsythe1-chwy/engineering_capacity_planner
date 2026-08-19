@@ -16,6 +16,9 @@ export function registerConfigRoutes(app: FastifyInstance, db: Db): void {
   app.patch('/api/settings', async (req) => ({
     settings: repo.upsertGlobalSettings(db, (req.body ?? {}) as Record<string, unknown>),
   }));
+  app.patch<{ Params: { teamId: string } }>('/api/teams/:teamId/settings', async (req) => ({
+    settings: repo.upsertTeamSettings(db, req.params.teamId, (req.body ?? {}) as Record<string, unknown>),
+  }));
   app.patch<{ Params: { key: string } }>('/api/epics/:key/settings', async (req) => ({
     settings: repo.upsertEpicSettings(db, req.params.key, (req.body ?? {}) as Record<string, unknown>),
   }));
@@ -83,6 +86,20 @@ export function registerConfigRoutes(app: FastifyInstance, db: Db): void {
   );
   app.delete<{ Params: IdParams }>('/api/milestones/:id', async (req, reply) => {
     repo.deleteMilestone(db, req.params.id);
+    reply.code(204);
+  });
+
+  // --- Portfolio-global important dates -----------------------------------
+  app.post('/api/important-dates', async (req, reply) => {
+    const date = repo.createImportantDate(db, (req.body ?? {}) as never);
+    reply.code(201);
+    return date;
+  });
+  app.put<{ Params: IdParams }>('/api/important-dates/:id', async (req) =>
+    repo.updateImportantDate(db, req.params.id, (req.body ?? {}) as never),
+  );
+  app.delete<{ Params: IdParams }>('/api/important-dates/:id', async (req, reply) => {
+    repo.deleteImportantDate(db, req.params.id);
     reply.code(204);
   });
 }

@@ -13,7 +13,19 @@ const scopeIdFromDb = (scopeId: string): string | null => (scopeId === '' ? null
  * re-seeding is idempotent. Foreign keys are enforced, so a dataset with a
  * dangling reference will throw and roll back.
  */
-export function writeDataset(db: Db, dataset: DomainDataset): void {
+/**
+ * Replace dataset-owned rows without creating a transaction.  Sync uses this
+ * inside its own transaction so facts, freshness, and history succeed/fail as
+ * one unit; normal seed/import callers should use {@link writeDataset}.
+ */
+export function replaceDatasetRows(db: Db, dataset: DomainDataset): void {
+  // Dataset replacement temporarily removes teams and members that durable
+  // standup history references. Defer FK checks until the surrounding
+  // transaction commits, after those same parent rows have been restored.
+  // SQLite still rejects the commit if the replacement leaves a true dangling
+  // reference, and automatically resets this pragma after commit or rollback.
+  db.pragma('defer_foreign_keys = ON');
+
   const insertTeam = db.prepare(
     `INSERT INTO team (id, name, sprint_length_days, sprint_start_weekday, sprint_anchor_date, working_days)
      VALUES (@id, @name, @sprintLengthDays, @sprintStartWeekday, @sprintAnchorDate, @workingDays)`,
@@ -35,8 +47,8 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
      VALUES (@id, @memberId, @startDate, @endDate, @note)`,
   );
   const insertBandwidthCheckIn = db.prepare(
-    `INSERT INTO bandwidth_check_in (member_id, check_in_date, feeling, note, created_at, updated_at)
-     VALUES (@memberId, @date, @feeling, @note, @createdAt, @updatedAt)`,
+    `INSERT INTO bandwidth_check_in (member_id, check_in_date, session_id, feeling, note, created_at, updated_at)
+     VALUES (@memberId, @date, @sessionId, @feeling, @note, @createdAt, @updatedAt)`,
   );
   const insertEpic = db.prepare(
     `INSERT INTO epic (key, title, team_id, active, source_status, status_category, archived_at, last_seen_at)
@@ -45,12 +57,20 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
   const insertPortfolioEpic = db.prepare(
     `INSERT INTO portfolio_epic (epic_key, scope_override, planning_kind, priority) VALUES (@epicKey, @scopeOverride, @planningKind, @priority)`,
   );
+  const insertEpicEstimate = db.prepare(
+    `INSERT INTO epic_estimate (epic_key, unrefined_points, reviewed_fact_basis_json, reviewed_at, updated_at)
+     VALUES (@epicKey, @unrefinedPoints, @reviewedFactBasisJson, @reviewedAt, @updatedAt)`,
+  );
   const insertEpicSme = db.prepare(
     'INSERT INTO epic_sme (epic_key, member_id, rank) VALUES (@epicKey, @memberId, @rank)',
   );
   const insertMilestone = db.prepare(
     `INSERT INTO epic_milestone (id, epic_key, name, date, is_gating)
      VALUES (@id, @epicKey, @name, @date, @isGating)`,
+  );
+  const insertImportantDate = db.prepare(
+    `INSERT INTO global_important_date (id, name, date, icon_key, notes, link_url)
+     VALUES (@id, @name, @date, @iconKey, @notes, @linkUrl)`,
   );
   const insertStory = db.prepare(
     `INSERT INTO user_story (key, epic_key, title, labels)
@@ -77,13 +97,12 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
      VALUES (@key, @scope, @scopeId, @value)`,
   );
 
-  const run = db.transaction((data: DomainDataset) => {
-    for (const table of DELETE_ORDER) db.prepare(`DELETE FROM ${table}`).run();
+  for (const table of DELETE_ORDER) db.prepare(`DELETE FROM ${table}`).run();
 
-    for (const t of data.teams) {
+    for (const t of dataset.teams) {
       insertTeam.run({ ...t, workingDays: JSON.stringify(t.workingDays) });
     }
-    for (const m of data.members) {
+    for (const m of dataset.members) {
       insertMember.run({
         ...m,
         active: bool(m.active),
@@ -91,22 +110,26 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
         avatarUrl: m.avatarUrl ?? null,
       });
     }
-    for (const v of data.velocityOverrides) insertVelocity.run({ ...v, note: v.note ?? null });
-    for (const p of data.pto) insertPto.run({ ...p, note: p.note ?? null });
-    for (const o of data.oncall) insertOncall.run({ ...o, note: o.note ?? null });
-    for (const checkIn of data.bandwidthCheckIns ?? []) {
-      insertBandwidthCheckIn.run({ ...checkIn, note: checkIn.note ?? null });
+    for (const v of dataset.velocityOverrides) insertVelocity.run({ ...v, note: v.note ?? null });
+    for (const p of dataset.pto) insertPto.run({ ...p, note: p.note ?? null });
+    for (const o of dataset.oncall) insertOncall.run({ ...o, note: o.note ?? null });
+    for (const checkIn of dataset.bandwidthCheckIns ?? []) {
+      insertBandwidthCheckIn.run({ ...checkIn, sessionId: checkIn.sessionId ?? null, note: checkIn.note ?? null });
     }
-    for (const sp of data.sprints) insertSprint.run(sp);
-    for (const e of data.epics) insertEpic.run({
+    for (const sp of dataset.sprints) insertSprint.run(sp);
+    for (const e of dataset.epics) insertEpic.run({
       ...e, active: bool(e.active ?? true), sourceStatus: e.sourceStatus ?? null,
       statusCategory: e.statusCategory ?? null, archivedAt: e.archivedAt ?? null, lastSeenAt: e.lastSeenAt ?? null,
     });
-    for (const p of data.portfolioEpics ?? []) insertPortfolioEpic.run({ ...p, planningKind: p.planningKind ?? 'timeline' });
-    for (const sme of data.epicSmes ?? []) insertEpicSme.run(sme);
-    for (const ms of data.milestones) insertMilestone.run({ ...ms, isGating: bool(ms.isGating) });
-    for (const s of data.stories) insertStory.run({ ...s, labels: JSON.stringify(s.labels ?? []) });
-    for (const w of data.workItems) {
+    for (const p of dataset.portfolioEpics ?? []) insertPortfolioEpic.run({ ...p, planningKind: p.planningKind ?? 'timeline' });
+    for (const estimate of dataset.epicEstimates ?? []) {
+      insertEpicEstimate.run({ ...estimate, reviewedFactBasisJson: JSON.stringify(sortBasis(estimate.reviewedFactBasis)) });
+    }
+    for (const sme of dataset.epicSmes ?? []) insertEpicSme.run(sme);
+    for (const ms of dataset.milestones) insertMilestone.run({ ...ms, isGating: bool(ms.isGating) });
+    for (const date of dataset.importantDates ?? []) insertImportantDate.run({ ...date, notes: date.notes ?? null, linkUrl: date.linkUrl ?? null });
+    for (const s of dataset.stories) insertStory.run({ ...s, labels: JSON.stringify(s.labels ?? []) });
+    for (const w of dataset.workItems) {
       insertWorkItem.run({
         ...w,
         isEstimated: bool(w.isEstimated ?? true),
@@ -115,14 +138,32 @@ export function writeDataset(db: Db, dataset: DomainDataset): void {
         labels: JSON.stringify(w.labels ?? []),
       });
     }
-    for (const d of data.dependencies) insertDependency.run(d);
-    for (const p of data.placements) insertPlacement.run(p);
-    for (const s of data.settings) {
+    for (const d of dataset.dependencies) insertDependency.run(d);
+    for (const p of dataset.placements) insertPlacement.run(p);
+    for (const s of dataset.settings) {
       insertSetting.run({ ...s, scopeId: scopeIdToDb(s.scopeId) });
     }
-  });
+}
 
-  run(dataset);
+export function writeDataset(db: Db, dataset: DomainDataset): void {
+  db.transaction((data: DomainDataset) => replaceDatasetRows(db, data))(dataset);
+}
+
+function sortBasis(basis: Record<string, number | null>): Record<string, number | null> {
+  return Object.fromEntries(Object.entries(basis).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function parseEstimateBasis(raw: unknown): Record<string, number | null> {
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).flatMap(([key, value]) =>
+      value === null || (typeof value === 'number' && Number.isFinite(value)) ? [[key, value]] : [],
+    ));
+  } catch {
+    return {};
+  }
 }
 
 /** Read the full dataset back out of the database (used for verification). */
@@ -188,6 +229,7 @@ export function readDataset(db: Db): DomainDataset {
       .map((r: any) => ({
         memberId: r.member_id,
         date: r.check_in_date,
+        sessionId: r.session_id ?? null,
         feeling: r.feeling,
         note: r.note ?? null,
         createdAt: r.created_at,
@@ -205,6 +247,13 @@ export function readDataset(db: Db): DomainDataset {
     portfolioEpics: db.prepare('SELECT * FROM portfolio_epic').all().map((r: any) => ({
       epicKey: r.epic_key, scopeOverride: r.scope_override, planningKind: r.planning_kind ?? 'timeline', priority: r.priority,
     })),
+    epicEstimates: db.prepare('SELECT * FROM epic_estimate ORDER BY epic_key ASC').all().map((r: any) => ({
+      epicKey: r.epic_key,
+      unrefinedPoints: r.unrefined_points,
+      reviewedFactBasis: parseEstimateBasis(r.reviewed_fact_basis_json),
+      reviewedAt: r.reviewed_at,
+      updatedAt: r.updated_at,
+    })),
     epicSmes: db.prepare('SELECT * FROM epic_sme ORDER BY epic_key ASC, rank ASC').all().map((r: any) => ({
       epicKey: r.epic_key, memberId: r.member_id, rank: r.rank,
     })),
@@ -218,6 +267,9 @@ export function readDataset(db: Db): DomainDataset {
         date: r.date,
         isGating: r.is_gating === 1,
       })),
+    importantDates: db.prepare('SELECT * FROM global_important_date ORDER BY date ASC, name COLLATE NOCASE ASC, id ASC').all().map((r: any) => ({
+      id: r.id, name: r.name, date: r.date, iconKey: r.icon_key, notes: r.notes ?? null, linkUrl: r.link_url ?? null,
+    })),
     stories: db
       .prepare('SELECT * FROM user_story')
       .all()

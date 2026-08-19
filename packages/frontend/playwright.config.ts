@@ -9,6 +9,8 @@ import { defineConfig, devices } from '@playwright/test';
  * where the matching browser build isn't downloaded).
  */
 const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
+const testPort = Number(process.env.VITE_PORT) || 5173;
+const testBaseUrl = `http://localhost:${testPort}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -16,7 +18,7 @@ export default defineConfig({
   fullyParallel: true,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: testBaseUrl,
     trace: 'on-first-retry',
   },
   projects: [
@@ -30,7 +32,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
+    url: testBaseUrl,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

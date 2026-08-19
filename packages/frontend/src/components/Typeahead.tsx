@@ -1,159 +1,74 @@
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { parseJiraTicketKey } from '@ecp/shared';
 import { JiraKeyLink } from './JiraLink';
 
-export interface TypeaheadOption {
-  /** Stable identity used as the React key and selection value. */
-  id: string;
-  /** Primary text shown in the row. */
-  label: string;
-  /** Optional dimmed secondary text (e.g. a key or email). */
-  hint?: string;
-  /** Optional leading avatar image URL (e.g. a Jira user). */
-  imageUrl?: string | null;
-}
-
+export interface TypeaheadOption { id: string; label: string; hint?: string; imageUrl?: string | null; }
 interface TypeaheadProps<T extends TypeaheadOption> {
-  /** Current text in the input. */
-  value: string;
-  onChange: (text: string) => void;
-  /**
-   * Run a search for `query` and return matching options. Called (debounced) as
-   * the user types; may reject/throw, surfaced as an inline error.
-   */
-  search: (query: string) => Promise<T[]>;
-  onSelect: (option: T) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  /** Search even when the box is empty (list everything). Default false. */
-  searchOnEmpty?: boolean;
-  testId?: string;
+  value: string; onChange: (text: string) => void; search: (query: string) => Promise<T[]>; onSelect: (option: T) => void;
+  placeholder?: string; disabled?: boolean; searchOnEmpty?: boolean; debounceMs?: number; showLoading?: boolean; onFocus?: () => void;
+  inputType?: 'text' | 'search'; inputClassName?: string; testId?: string;
+  selectedId?: string | null; renderOptionLeading?: (option: T) => ReactNode; inputLeading?: ReactNode;
+  selectValueOnFocus?: boolean; searchAllOnFocus?: boolean; portalMenu?: boolean; emptyLabel?: string; onDismiss?: () => void;
 }
 
-/**
- * A minimal debounced typeahead: an input plus a results dropdown backed by an
- * async `search`. Deliberately dependency-free (no combobox library) — it drives
- * the Jira setup wizard's board / epic / user pickers, which hit live Jira
- * search under the hood.
- */
+/** A dependency-free async/local combobox with optional trusted visual adornments. */
 export function Typeahead<T extends TypeaheadOption>({
-  value,
-  onChange,
-  search,
-  onSelect,
-  placeholder,
-  disabled,
-  searchOnEmpty = false,
-  testId,
+  value, onChange, search, onSelect, placeholder, disabled, searchOnEmpty = false, debounceMs = 200, showLoading = true, onFocus,
+  inputType = 'text', inputClassName, testId, selectedId, renderOptionLeading, inputLeading, selectValueOnFocus = false,
+  searchAllOnFocus = false, portalMenu = false, emptyLabel = 'No matches', onDismiss,
 }: TypeaheadProps<T>) {
-  const [open, setOpen] = useState(false);
-  const [options, setOptions] = useState<T[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-  // Guards against a slow earlier search overwriting a newer one's results.
-  const seq = useRef(0);
+  const [open, setOpen] = useState(false); const [options, setOptions] = useState<T[]>([]); const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null); const [activeIndex, setActiveIndex] = useState(0); const [focusedUnedited, setFocusedUnedited] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null); const menuRef = useRef<HTMLDivElement>(null); const inputRef = useRef<HTMLInputElement>(null); const listboxId = useId(); const seq = useRef(0);
+  const [position, setPosition] = useState<CSSProperties>({});
+  const query = searchAllOnFocus && focusedUnedited ? '' : value.trim();
 
-  // Debounced search on the current value.
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || !open) return;
+    if (!query && !searchOnEmpty && !(searchAllOnFocus && focusedUnedited)) { setOptions([]); return; }
+    const mine = ++seq.current; setLoading(true); setError(null);
+    const timer = window.setTimeout(() => { search(query).then((result) => { if (mine === seq.current) setOptions(result); }).catch((reason) => {
+      if (mine === seq.current) { setOptions([]); setError(reason instanceof Error ? reason.message : String(reason)); }
+    }).finally(() => { if (mine === seq.current) setLoading(false); }); }, debounceMs);
+    return () => window.clearTimeout(timer);
+  }, [query, open, disabled, search, searchOnEmpty, searchAllOnFocus, focusedUnedited, debounceMs]);
+
+  useEffect(() => { setActiveIndex((index) => Math.max(0, Math.min(index, Math.max(0, options.length - 1)))); }, [options.length]);
+  useEffect(() => {
     if (!open) return;
-    if (value.trim() === '' && !searchOnEmpty) {
-      setOptions([]);
-      return;
-    }
-    const mine = ++seq.current;
-    setLoading(true);
-    setError(null);
-    const t = setTimeout(() => {
-      search(value.trim())
-        .then((res) => {
-          if (mine === seq.current) setOptions(res);
-        })
-        .catch((e) => {
-          if (mine === seq.current) {
-            setOptions([]);
-            setError(e instanceof Error ? e.message : String(e));
-          }
-        })
-        .finally(() => {
-          if (mine === seq.current) setLoading(false);
-        });
-    }, 200);
-    return () => clearTimeout(t);
-  }, [value, open, disabled, search, searchOnEmpty]);
-
-  // Close the dropdown on an outside click.
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
-
-  const choose = (opt: T) => {
-    onSelect(opt);
-    setOpen(false);
+    const outside = (event: PointerEvent) => { if (!boxRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) close(); };
+    document.addEventListener('pointerdown', outside); return () => document.removeEventListener('pointerdown', outside);
+  });
+  const updatePosition = () => {
+    const rect = boxRef.current?.getBoundingClientRect(); if (!rect) return;
+    const upward = window.innerHeight - rect.bottom < 270 && rect.top > window.innerHeight - rect.bottom;
+    setPosition({ position: 'fixed', left: rect.left, width: Math.max(rect.width, 220), ...(upward ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }) });
   };
+  useLayoutEffect(() => {
+    if (!open || !portalMenu) return; updatePosition(); const refresh = () => updatePosition(); window.addEventListener('resize', refresh); document.addEventListener('scroll', refresh, true);
+    return () => { window.removeEventListener('resize', refresh); document.removeEventListener('scroll', refresh, true); };
+  }, [open, portalMenu]);
+  useEffect(() => { if (open && options[activeIndex]) document.getElementById(`${listboxId}-${options[activeIndex]!.id}`)?.scrollIntoView({ block: 'nearest' }); }, [open, activeIndex, options, listboxId]);
 
-  return (
-    <div className="typeahead" ref={boxRef} data-testid={testId}>
-      <input
-        type="text"
-        value={value}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-      />
-      {open && !disabled && (value.trim() !== '' || searchOnEmpty) && (
-        <div className="typeahead-menu" role="listbox">
-          {loading && <div className="typeahead-status">Searching…</div>}
-          {error && <div className="typeahead-status error">⚠ {error}</div>}
-          {!loading && !error && options.length === 0 && (
-            <div className="typeahead-status">No matches</div>
-          )}
-          {options.map((opt) => (
-            <div
-              key={opt.id}
-              className="typeahead-option"
-              role="option"
-              tabIndex={0}
-              aria-selected={false}
-              data-testid="typeahead-option"
-              onClick={() => choose(opt)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  choose(opt);
-                }
-              }}
-            >
-              <span className="typeahead-main">
-                {opt.imageUrl && <img className="typeahead-avatar" src={opt.imageUrl} alt="" width={20} height={20} />}
-                <span className="typeahead-label">{opt.label}</span>
-              </span>
-              {opt.hint && <TypeaheadHint hint={opt.hint} />}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const close = () => { setOpen(false); setFocusedUnedited(false); };
+  const dismiss = () => { close(); onDismiss?.(); };
+  const choose = (option: T) => { onSelect(option); setOpen(false); setFocusedUnedited(false); requestAnimationFrame(() => inputRef.current?.focus()); };
+  const active = options[activeIndex]; const showMenu = open && !disabled && (query !== '' || searchOnEmpty || (searchAllOnFocus && focusedUnedited));
+  const menu = showMenu ? <div ref={menuRef} style={portalMenu ? position : undefined} id={listboxId} className={`typeahead-menu${portalMenu ? ' typeahead-menu-portal' : ''}`} role="listbox">
+    {loading && showLoading && <div className="typeahead-status">Searching…</div>}{error && <div className="typeahead-status error">⚠ {error}</div>}
+    {!loading && !error && options.length === 0 && <div className="typeahead-status">{emptyLabel}</div>}
+    {options.map((option, index) => <button key={option.id} id={`${listboxId}-${option.id}`} type="button" className={`typeahead-option${index === activeIndex ? ' is-active' : ''}${option.id === selectedId ? ' is-selected' : ''}`} role="option" tabIndex={-1} aria-selected={option.id === selectedId} data-testid="typeahead-option" onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
+      <span className="typeahead-main">{renderOptionLeading?.(option)}{option.imageUrl && <img className="typeahead-avatar" src={option.imageUrl} alt="" width={20} height={20} />}<span className="typeahead-label">{option.label}</span></span>{option.hint && <TypeaheadHint hint={option.hint} />}
+    </button>)}
+  </div> : null;
+  return <div className={`typeahead${inputLeading ? ' has-leading' : ''}`} ref={boxRef} data-testid={testId}>
+    {inputLeading && <span className="typeahead-input-leading" aria-hidden="true">{inputLeading}</span>}
+    <input ref={inputRef} type={inputType} className={inputClassName} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={listboxId} aria-activedescendant={open && active ? `${listboxId}-${active.id}` : undefined} value={value} disabled={disabled} placeholder={placeholder}
+      onChange={(event) => { setFocusedUnedited(false); onChange(event.target.value); setOpen(true); setActiveIndex(0); }}
+      onFocus={() => { onFocus?.(); setFocusedUnedited(searchAllOnFocus); setOpen(true); setActiveIndex(0); if (selectValueOnFocus) requestAnimationFrame(() => inputRef.current?.select()); }}
+      onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); setActiveIndex((index) => Math.min(index + 1, Math.max(0, options.length - 1))); } else if (event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActiveIndex((index) => Math.max(index - 1, 0)); } else if (event.key === 'Home' && open) { event.preventDefault(); setActiveIndex(0); } else if (event.key === 'End' && open) { event.preventDefault(); setActiveIndex(Math.max(0, options.length - 1)); } else if (event.key === 'Enter' && active) { event.preventDefault(); choose(active); } else if (event.key === 'Escape') { event.preventDefault(); dismiss(); inputRef.current?.focus(); } }} />
+    {portalMenu ? menu && createPortal(menu, document.body) : menu}
+  </div>;
 }
-
-function TypeaheadHint({ hint }: { hint: string }) {
-  const key = parseJiraTicketKey(hint);
-  if (key === hint) {
-    return (
-      <span className="typeahead-hint">
-        <JiraKeyLink jiraKey={hint} />
-      </span>
-    );
-  }
-  return <span className="typeahead-hint">{hint}</span>;
-}
+function TypeaheadHint({ hint }: { hint: string }) { const key = parseJiraTicketKey(hint); return <span className="typeahead-hint">{key === hint ? <JiraKeyLink jiraKey={hint} /> : hint}</span>; }

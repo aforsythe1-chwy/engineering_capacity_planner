@@ -156,6 +156,53 @@ describe('buildGraphLayout — focus mode', () => {
   });
 });
 
+describe('buildGraphLayout — remaining work and done visibility', () => {
+  const mixedScope = {
+    ...scope,
+    workItems: [
+      { ...scope.workItems[0]!, key: 'A', title: 'Active blocker', status: 'To Do' as const },
+      { ...scope.workItems[1]!, key: 'B', title: 'Done descendant', status: 'Done' as const },
+      { ...scope.workItems[2]!, key: 'C', title: 'Active descendant', status: 'To Do' as const },
+      { ...scope.workItems[3]!, key: 'D', title: 'Scenario done blocker', status: 'To Do' as const },
+      { ...scope.workItems[4]!, key: 'E', title: 'Cut blocker', status: 'To Do' as const },
+    ],
+    dependencies: [
+      { id: 'A-B', blockerItemKey: 'A', blockedItemKey: 'B' },
+      { id: 'A-C', blockerItemKey: 'A', blockedItemKey: 'C' },
+      { id: 'D-C', blockerItemKey: 'D', blockedItemKey: 'C' },
+      { id: 'E-C', blockerItemKey: 'E', blockedItemKey: 'C' },
+    ],
+  };
+
+  it('recommends only unfinished, non-cut blockers and counts only remaining descendants', () => {
+    const layout = buildGraphLayout(
+      mixedScope,
+      emptyScenario({ doneItemKeys: new Set(['D']), cutItemKeys: new Set(['E']) }),
+    );
+    expect(layout.recommendations.map((item) => item.key)).toEqual(['A']);
+    expect(layout.recommendations[0]).toMatchObject({ directDependents: 1, transitiveDependents: 1 });
+    expect(layout.nodes.find((node) => node.key === 'B')).toMatchObject({ done: true, tier: 'none', transitiveDependents: 0 });
+    expect(layout.nodes.find((node) => node.key === 'D')).toMatchObject({ done: true, tier: 'none', transitiveDependents: 0 });
+    expect(layout.nodes.find((node) => node.key === 'E')).toMatchObject({ cut: true, tier: 'none', transitiveDependents: 0 });
+  });
+
+  it('hides done nodes and incident edges without bridging dependency relationships', () => {
+    const layout = buildGraphLayout(mixedScope, emptyScenario(), null, { showDone: false });
+    expect(layout.nodes.map((node) => node.key)).not.toContain('B');
+    expect(layout.edges.map((edge) => edge.id)).not.toContain('A->B');
+    expect(layout.edges.map((edge) => edge.id)).toEqual(expect.arrayContaining(['A->C', 'D->C', 'E->C']));
+    expect(layout.doneCount).toBe(1);
+    expect(layout.visibleCount).toBe(4);
+  });
+
+  it('preserves an unfinished focused subtree while hiding its done context', () => {
+    const layout = buildGraphLayout(mixedScope, emptyScenario(), 'A', { showDone: false });
+    expect(layout.focusKey).toBe('A');
+    expect(layout.nodes.map((node) => node.key)).toEqual(expect.arrayContaining(['A', 'C']));
+    expect(layout.nodes.map((node) => node.key)).not.toContain('B');
+  });
+});
+
 describe('buildGraphLayout — empty epic', () => {
   it('returns an empty, zero-size layout', () => {
     const emptyDataset: DomainDataset = { ...dataset, workItems: [], dependencies: [] };

@@ -12,6 +12,9 @@
 import { randomUUID } from 'node:crypto';
 import type {
   EpicMilestone,
+  GlobalImportantDate,
+  ImportantDateIconKey,
+  EpicEstimate,
   EpicPlanningKind,
   PortfolioEpic,
   PortfolioScopeOverride,
@@ -25,7 +28,7 @@ import type {
   VelocityOverride,
   Weekday,
 } from '@ecp/shared';
-import { diffDays, SETTING_KEYS } from '@ecp/shared';
+import { diffDays, IMPORTANT_DATE_ICON_KEYS, SETTING_KEYS } from '@ecp/shared';
 import type { Db } from './database.js';
 import { badRequest, conflict, notFound } from '../http-error.js';
 import { memberHasBandwidthHistory } from './bandwidth.js';
@@ -37,7 +40,8 @@ import { memberHasBandwidthHistory } from './bandwidth.js';
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function assertIsoDate(value: unknown, field: string): IsoDate {
-  if (typeof value !== 'string' || !ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) {
+  const parsed = typeof value === 'string' && ISO_DATE.test(value) ? new Date(`${value}T00:00:00.000Z`) : null;
+  if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
     throw badRequest(`${field} must be an ISO date (YYYY-MM-DD)`);
   }
   return value;
@@ -145,6 +149,34 @@ const milestoneRow = (r: any): EpicMilestone => ({
   date: r.date,
   isGating: r.is_gating === 1,
 });
+const importantDateRow = (r: any): GlobalImportantDate => ({ id: r.id, name: r.name, date: r.date, iconKey: r.icon_key, notes: r.notes ?? null, linkUrl: r.link_url ?? null });
+
+function assertImportantDateIcon(value: unknown): ImportantDateIconKey {
+  if (typeof value !== 'string' || !(IMPORTANT_DATE_ICON_KEYS as readonly string[]).includes(value)) {
+    throw badRequest('iconKey must be an allowed important-date icon');
+  }
+  return value as ImportantDateIconKey;
+}
+
+function importantDateNotes(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw badRequest('notes must be a string');
+  const result = value.trim();
+  if (result.length > 2000) throw badRequest('notes must be at most 2000 characters');
+  return result || null;
+}
+
+function importantDateLink(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw badRequest('linkUrl must be a string');
+  const result = value.trim();
+  if (!result) return null;
+  try {
+    const url = new URL(result);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    return url.toString();
+  } catch { throw badRequest('linkUrl must be an http(s) URL'); }
+}
 
 // ---------------------------------------------------------------------------
 // Existence helpers
@@ -192,6 +224,46 @@ export function updatePortfolioEpic(db: Db, epicKey: string, patch: {
 }
 
 // ---------------------------------------------------------------------------
+// Progressive epic estimates (local intent, acknowledged against Jira facts)
+// ---------------------------------------------------------------------------
+
+function canonicalFactBasis(value: unknown): Record<string, number | null> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('reviewed fact basis must be an object');
+  const entries = Object.entries(value).map(([key, points]) => {
+    if (typeof key !== 'string' || key.trim() === '') throw badRequest('reviewed fact basis keys must be non-empty');
+    if (points !== null && (typeof points !== 'number' || !Number.isFinite(points))) throw badRequest('reviewed fact basis values must be finite numbers or null');
+    return [key, points] as const;
+  }).sort(([a], [b]) => a.localeCompare(b));
+  return Object.fromEntries(entries);
+}
+
+export function saveEpicEstimate(
+  db: Db,
+  epicKey: string,
+  input: { unrefinedPoints?: unknown; reviewedFactBasis?: unknown; now?: string },
+): EpicEstimate {
+  requireEpic(db, epicKey);
+  if (Object.keys(input).some((key) => !['unrefinedPoints', 'reviewedFactBasis', 'now'].includes(key))) throw badRequest('Unknown epic estimate field');
+  const unrefinedPoints = assertNumber(input.unrefinedPoints, 'unrefinedPoints', { min: 0 });
+  const reviewedFactBasis = canonicalFactBasis(input.reviewedFactBasis);
+  const now = input.now ?? new Date().toISOString();
+  const estimate: EpicEstimate = { epicKey, unrefinedPoints, reviewedFactBasis, reviewedAt: now, updatedAt: now };
+  db.prepare(
+    `INSERT INTO epic_estimate (epic_key, unrefined_points, reviewed_fact_basis_json, reviewed_at, updated_at)
+     VALUES (@epicKey, @unrefinedPoints, @reviewedFactBasis, @reviewedAt, @updatedAt)
+     ON CONFLICT(epic_key) DO UPDATE SET unrefined_points = excluded.unrefined_points,
+       reviewed_fact_basis_json = excluded.reviewed_fact_basis_json, reviewed_at = excluded.reviewed_at,
+       updated_at = excluded.updated_at`,
+  ).run({ ...estimate, reviewedFactBasis: JSON.stringify(reviewedFactBasis) });
+  return estimate;
+}
+
+export function deleteEpicEstimate(db: Db, epicKey: string): void {
+  requireEpic(db, epicKey);
+  db.prepare('DELETE FROM epic_estimate WHERE epic_key = ?').run(epicKey);
+}
+
+// ---------------------------------------------------------------------------
 // Settings knobs
 // ---------------------------------------------------------------------------
 
@@ -215,6 +287,11 @@ const EDITABLE_SETTINGS: Record<string, (value: unknown, key: string) => unknown
   [SETTING_KEYS.JIRA_SPRINT_FIELD]: nullableString,
   [SETTING_KEYS.JIRA_LABELS_FIELD]: nullableString,
   [SETTING_KEYS.STANDUP_STATUS_PRESENTATION]: standupStatusPresentationSetting,
+  [SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS]: (v, k) => assertNumber(v, k, { min: 5, max: 600, int: true }),
+};
+
+const EDITABLE_TEAM_SETTINGS: Record<string, (db: Db, teamId: string, value: unknown, key: string) => unknown> = {
+  [SETTING_KEYS.STANDUP_PSEUDOGROUPS]: (db, teamId, value, key) => standupPseudogroupsSetting(db, teamId, value, key),
 };
 
 /** Epic-scoped settings the Configuration UI may edit. */
@@ -263,6 +340,26 @@ function standupStatusPresentationSetting(value: unknown, field: string): unknow
     return { boardId, boardName, entries };
   });
   return { version: 1, boards };
+}
+
+function standupPseudogroupsSetting(db: Db, teamId: string, value: unknown, field: string): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest(`${field} must be an object`);
+  const doc = value as Record<string, unknown>;
+  if (Object.keys(doc).some((key) => key !== 'version' && key !== 'groups') || doc.version !== 1 || !Array.isArray(doc.groups) || doc.groups.length > 50) throw badRequest(`${field} must be a version 1 groups document with at most 50 groups`);
+  const ids = new Set<string>(); const names = new Set<string>();
+  return { version: 1, groups: doc.groups.map((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw badRequest(`${field}.groups[${index}] must be an object`);
+    const group = raw as Record<string, unknown>;
+    if (Object.keys(group).some((key) => !['id', 'name', 'memberIds'].includes(key)) || !Array.isArray(group.memberIds)) throw badRequest(`${field}.groups[${index}] has unknown or invalid fields`);
+    const id = boundedText(group.id, `${field}.groups[${index}].id`); const name = boundedText(group.name, `${field}.groups[${index}].name`);
+    if (ids.has(id) || names.has(name.toLocaleLowerCase())) throw badRequest(`${field} contains duplicate group IDs or names`);
+    ids.add(id); names.add(name.toLocaleLowerCase());
+    if (group.memberIds.length > 100 || group.memberIds.some((memberId) => typeof memberId !== 'string')) throw badRequest(`${field}.groups[${index}].memberIds must contain at most 100 IDs`);
+    const memberIds = [...new Set(group.memberIds as string[])];
+    if (memberIds.length !== group.memberIds.length) throw badRequest(`${field}.groups[${index}] contains duplicate member IDs`);
+    for (const memberId of memberIds) if (!db.prepare('SELECT 1 FROM team_member WHERE id = ? AND team_id = ?').get(memberId, teamId)) throw badRequest(`${field} members must belong to the selected team`);
+    return { id, name, memberIds };
+  }) };
 }
 
 function boundedText(value: unknown, field: string): string {
@@ -358,6 +455,19 @@ export function upsertEpicSettings(db: Db, epicKey: string, patch: Record<string
         value: r.value,
       }),
     );
+}
+
+/** Upsert allowlisted team settings after validating all group members belong to the team. */
+export function upsertTeamSettings(db: Db, teamId: string, patch: Record<string, unknown>): Setting[] {
+  requireTeam(db, teamId);
+  const entries = Object.entries(patch); if (!entries.length) throw badRequest('No settings provided');
+  const run = db.transaction(() => {
+    const stmt = db.prepare(`INSERT INTO settings (key, scope, scope_id, value) VALUES (?, 'team', ?, ?)
+      ON CONFLICT(key, scope, scope_id) DO UPDATE SET value = excluded.value`);
+    for (const [key, value] of entries) { const validate = EDITABLE_TEAM_SETTINGS[key]; if (!validate) throw badRequest(`Unknown or read-only team setting "${key}"`); stmt.run(key, teamId, JSON.stringify(validate(db, teamId, value, key))); }
+  });
+  run();
+  return db.prepare("SELECT * FROM settings WHERE scope = 'team' AND scope_id = ?").all(teamId).map((r: any): Setting => ({ key: r.key, scope: r.scope, scopeId: r.scope_id, value: r.value }));
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +779,35 @@ export function deleteMilestone(db: Db, id: string): void {
     throw conflict('Cannot delete the gating milestone; mark another as gating first');
   }
   db.prepare('DELETE FROM epic_milestone WHERE id = ?').run(id);
+}
+
+// ---------------------------------------------------------------------------
+// Portfolio-global important dates
+// ---------------------------------------------------------------------------
+export function createImportantDate(db: Db, input: { name: unknown; date: unknown; iconKey: unknown; notes?: unknown; linkUrl?: unknown }): GlobalImportantDate {
+  if (Object.keys(input).some((key) => !['name', 'date', 'iconKey', 'notes', 'linkUrl'].includes(key))) throw badRequest('Unknown important date field');
+  const date: GlobalImportantDate = { id: newId('date'), name: assertNonEmptyString(input.name, 'name').trim().slice(0, 160), date: assertIsoDate(input.date, 'date'), iconKey: assertImportantDateIcon(input.iconKey), notes: importantDateNotes(input.notes), linkUrl: importantDateLink(input.linkUrl) };
+  db.prepare('INSERT INTO global_important_date (id, name, date, icon_key, notes, link_url) VALUES (@id, @name, @date, @iconKey, @notes, @linkUrl)').run(date);
+  return date;
+}
+
+export function updateImportantDate(db: Db, id: string, patch: { name?: unknown; date?: unknown; iconKey?: unknown; notes?: unknown; linkUrl?: unknown }): GlobalImportantDate {
+  const keys = Object.keys(patch);
+  if (!keys.length || keys.some((key) => !['name', 'date', 'iconKey', 'notes', 'linkUrl'].includes(key))) throw badRequest('Important date update must contain known fields');
+  const row = db.prepare('SELECT * FROM global_important_date WHERE id = ?').get(id);
+  if (!row) throw notFound(`Important date ${id} not found`);
+  const next = importantDateRow(row);
+  if (patch.name !== undefined) next.name = assertNonEmptyString(patch.name, 'name').trim().slice(0, 160);
+  if (patch.date !== undefined) next.date = assertIsoDate(patch.date, 'date');
+  if (patch.iconKey !== undefined) next.iconKey = assertImportantDateIcon(patch.iconKey);
+  if (patch.notes !== undefined) next.notes = importantDateNotes(patch.notes);
+  if (patch.linkUrl !== undefined) next.linkUrl = importantDateLink(patch.linkUrl);
+  db.prepare('UPDATE global_important_date SET name = @name, date = @date, icon_key = @iconKey, notes = @notes, link_url = @linkUrl WHERE id = @id').run(next);
+  return next;
+}
+
+export function deleteImportantDate(db: Db, id: string): void {
+  if (db.prepare('DELETE FROM global_important_date WHERE id = ?').run(id).changes === 0) throw notFound(`Important date ${id} not found`);
 }
 
 // ---------------------------------------------------------------------------

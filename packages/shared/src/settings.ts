@@ -56,7 +56,13 @@ export const SETTING_KEYS = {
   LAST_SYNCED_AT: 'last_synced_at',
   /** Board-specific labels and order used only by the Standup ticket display. */
   STANDUP_STATUS_PRESENTATION: 'standup_status_presentation',
+  STANDUP_SPEAKER_THRESHOLD_SECONDS: 'standup_speaker_threshold_seconds',
+  STANDUP_PSEUDOGROUPS: 'standup_pseudogroups',
 } as const;
+
+export const STANDUP_DEFAULTS = { SPEAKER_THRESHOLD_SECONDS: 45 } as const;
+export interface StandupPseudogroup { id: string; name: string; memberIds: string[]; }
+export interface StandupPseudogroupsSetting { version: 1; groups: StandupPseudogroup[]; }
 
 export interface StandupStatusPresentationEntry {
   statusId: string;
@@ -122,6 +128,7 @@ export function defaultGlobalSettings(): Setting[] {
     global(SETTING_KEYS.JIRA_SPRINT_FIELD, null),
     global(SETTING_KEYS.JIRA_LABELS_FIELD, null),
     global(SETTING_KEYS.LAST_SYNCED_AT, null),
+    global(SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS, STANDUP_DEFAULTS.SPEAKER_THRESHOLD_SECONDS),
   ];
 }
 

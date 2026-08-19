@@ -72,6 +72,8 @@ export type BandwidthFeeling = 'red' | 'yellow' | 'green' | 'purple';
 export interface BandwidthCheckIn {
   memberId: string;
   date: IsoDate;
+  /** Present only when this value was captured as part of a standup session. */
+  sessionId?: string | null;
   feeling: BandwidthFeeling;
   note?: string | null;
   createdAt: string;
@@ -145,6 +147,19 @@ export interface PortfolioEpic {
   priority: number;
 }
 
+/**
+ * A locally-owned estimate for the portion of an epic that Jira does not yet
+ * represent as pointed remaining work.  Its review basis intentionally stores
+ * only Jira keys and estimates, never ticket text or other Jira content.
+ */
+export interface EpicEstimate {
+  epicKey: string;
+  unrefinedPoints: number;
+  reviewedFactBasis: Record<string, number | null>;
+  reviewedAt: string;
+  updatedAt: string;
+}
+
 /** Locally-authored expertise order for an epic. Rank zero is its owner. */
 export interface EpicSme {
   epicKey: string;
@@ -201,6 +216,28 @@ export interface EpicMilestone {
   name: string;
   date: IsoDate;
   isGating: boolean;
+}
+
+/** Built-in, safe visual markers for portfolio-global important dates. */
+export const IMPORTANT_DATE_ICON_KEYS = [
+  'calendar', 'star', 'flag', 'rocket', 'megaphone', 'shield', 'users',
+  'alert-triangle', 'bell', 'bookmark', 'briefcase', 'bug', 'cake', 'check-circle',
+  'circle-dollar-sign', 'clock', 'cloud', 'code', 'database', 'file-text', 'gift', 'globe',
+  'heart', 'key', 'lightbulb', 'link', 'lock', 'map-pin', 'package', 'plane', 'presentation',
+  'target', 'trophy', 'wrench', 'zap',
+] as const;
+export type ImportantDateIconKey = typeof IMPORTANT_DATE_ICON_KEYS[number];
+
+/** A locally-managed date that provides context for the entire portfolio. */
+export interface GlobalImportantDate {
+  id: string;
+  name: string;
+  date: IsoDate;
+  iconKey: ImportantDateIconKey;
+  /** Optional supporting context, kept as plain text. */
+  notes?: string | null;
+  /** Optional http(s) resource associated with this date. */
+  linkUrl?: string | null;
 }
 
 /** The grouping layer between an epic and its work items. */
@@ -324,6 +361,7 @@ export interface StandupSession {
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
+  committedAt: string | null;
   revision: number;
 }
 
@@ -345,7 +383,15 @@ export interface StandupNote {
   position: number;
   createdAt: string;
   updatedAt: string;
+  state: StandupNoteState;
+  completedAt: string | null;
+  deferredAt: string | null;
+  sourceNoteId: string | null;
+  sourceSessionDate: IsoDate | null;
+  mentions: StandupNoteMention[];
 }
+export type StandupNoteState = 'open' | 'completed' | 'deferred';
+export type StandupNoteMention = { kind: 'member'; id: string; label: string } | { kind: 'group'; id: string; label: string };
 
 export interface StandupTicket {
   key: string;
@@ -391,9 +437,13 @@ export interface DomainDataset {
   oncall: Oncall[];
   epics: Epic[];
   portfolioEpics?: PortfolioEpic[];
+  /** Optional while older fixtures and database snapshots are migrated. */
+  epicEstimates?: EpicEstimate[];
   /** Optional for backwards-compatible fixture and JSON imports. */
   epicSmes?: EpicSme[];
   milestones: EpicMilestone[];
+  /** Optional while older fixtures and database snapshots are migrated. */
+  importantDates?: GlobalImportantDate[];
   stories: UserStory[];
   workItems: WorkItem[];
   dependencies: Dependency[];

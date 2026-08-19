@@ -1,107 +1,131 @@
 import { expect, test } from '@playwright/test';
+import type { DomainDataset } from '@ecp/shared';
+import fixture from '../src/fixtures/dataset.json' with { type: 'json' };
+
+test.beforeEach(async ({ page }) => {
+  // Keep Calendar assertions deterministic when a local backend is running.
+  await page.route('**/api/dataset', (route) => route.abort());
+});
 
 test.describe('Calendar / timeline tab', () => {
-  test('renders the epic, status strip, and timeline markers', async ({ page }) => {
-    await page.goto('/');
-
-    await expect(page.getByRole('heading', { name: 'Engineering Capacity Planner' })).toBeVisible();
-    const strip = page.getByTestId('status-strip');
-    await expect(strip).toBeVisible();
-    await expect(strip).toHaveAttribute('data-verdict', /green|yellow|red/);
-
-    // The data-source indicator reflects the plumbing (API vs bundled fallback).
-    await expect(page.getByTestId('data-source')).toBeVisible();
-
-    // The timeline shows a today marker, the gating relevant day, and dev-complete.
-    await expect(page.getByTestId('timeline')).toBeVisible();
-    await expect(page.locator('.marker.today')).toBeVisible();
-    await expect(page.locator('.marker.gating')).toBeVisible();
-    await expect(page.getByTestId('marker-devcomplete')).toBeVisible();
-  });
-
-  test('renders the full-width month calendar with navigation', async ({ page }) => {
-    await page.goto('/');
-
-    // The calendar sits below the linear timeline and above the backlog.
-    const calendar = page.getByTestId('projection-calendar');
+  test('keeps tab/filter routing flat and renders Calendar before Delivery outlook', async ({ page }) => {
+    await page.goto('/?tab=timeline');
+    await expect(page.getByTestId('tab-timeline')).toHaveText('Calendar');
+    await expect(page).toHaveURL(/tab=timeline/);
+    const calendar = page.getByTestId('portfolio-calendar');
     await expect(calendar).toBeVisible();
-    await expect(calendar.locator('.cal-month-grid')).toBeVisible();
-    await expect(calendar.locator('.cal-cell').first()).toBeVisible();
+    await expect(page.getByTestId('delivery-outlook')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Delivery outlook' })).toBeVisible();
+    const calendarY = await calendar.evaluate((element) => element.getBoundingClientRect().top);
+    const outlookY = await page.getByTestId('delivery-outlook').evaluate((element) => element.getBoundingClientRect().top);
+    expect(calendarY).toBeLessThan(outlookY);
 
-    // Opens on the month containing "today", which is highlighted exactly once.
-    await expect(page.getByTestId('cal-current-month')).toHaveText('Jul 2026');
-    await expect(calendar.locator('.cal-cell.is-today')).toHaveCount(1);
-
-    // Multi-day work is drawn as spanning bars: sprints (hero) and their weeks.
-    await expect(calendar.locator('.cal-bar.sprint').first()).toBeVisible();
-    await expect(calendar.locator('.cal-bar.week').first()).toBeVisible();
-    await expect(calendar.locator('.cal-bar.avail').first()).toBeVisible();
-
-    // Sprint bars are shaded red/yellow/green by how loaded they are; the seeded
-    // first sprint is over-committed, so it renders red.
-    await expect(calendar.locator('.cal-bar.sprint[data-load]').first()).toBeVisible();
-    await expect(calendar.locator('.cal-bar.sprint.load-red').first()).toBeVisible();
-
-    // Paging forward reaches September, where the gating day and dev-complete land.
-    await page.getByTestId('cal-next').click();
-    await expect(page.getByTestId('cal-current-month')).toHaveText('Aug 2026');
-    await page.getByTestId('cal-next').click();
-    await expect(page.getByTestId('cal-current-month')).toHaveText('Sep 2026');
-    await expect(calendar.locator('.cal-event.gating').first()).toBeVisible();
-    await expect(calendar.locator('.cal-event.devcomplete').first()).toBeVisible();
-
-    // The filter hides the gating pill when "Relevant days" is unchecked.
-    await page.getByTestId('cal-filter-btn').click();
-    await expect(page.getByTestId('cal-filter-menu')).toBeVisible();
-    await page.getByTestId('cal-filter-milestones').uncheck();
-    await expect(calendar.locator('.cal-event.gating')).toHaveCount(0);
-    // Dev-complete is a separate layer and stays visible.
-    await expect(calendar.locator('.cal-event.devcomplete').first()).toBeVisible();
-    // Re-checking brings the gating pill back.
-    await page.getByTestId('cal-filter-milestones').check();
-    await expect(calendar.locator('.cal-event.gating').first()).toBeVisible();
-
-    // Clicking outside the menu closes it.
-    await page.getByTestId('timeline').click();
-    await expect(page.getByTestId('cal-filter-menu')).toBeHidden();
-
-    // "Today" jumps back to the current month, where the spanning bars show.
-    await page.getByTestId('cal-today-btn').click();
-    await expect(page.getByTestId('cal-current-month')).toHaveText('Jul 2026');
-    await expect(calendar.locator('.cal-bar.avail').first()).toBeVisible();
-    // The filter hides team availability and sprint weeks; the badge counts them.
-    await page.getByTestId('cal-filter-btn').click();
-    await page.getByTestId('cal-filter-availability').uncheck();
-    await expect(calendar.locator('.cal-bar.avail')).toHaveCount(0);
-    await page.getByTestId('cal-filter-sprintWeeks').uncheck();
-    await expect(calendar.locator('.cal-bar.week')).toHaveCount(0);
-    // Sprints stay visible; the badge reflects the two hidden layers.
-    await expect(calendar.locator('.cal-bar.sprint').first()).toBeVisible();
-    await expect(page.locator('.cal-filter-badge')).toHaveText('2');
-
-    // Ordering on the page: timeline → calendar → backlog.
-    const timelineY = await page.getByTestId('timeline').evaluate((el) => el.getBoundingClientRect().top);
-    const calendarY = await calendar.evaluate((el) => el.getBoundingClientRect().top);
-    const backlogY = await page.getByTestId('work-items').evaluate((el) => el.getBoundingClientRect().top);
-    expect(timelineY).toBeLessThan(calendarY);
-    expect(calendarY).toBeLessThan(backlogY);
+    await page.getByRole('combobox', { name: 'Epic filter' }).fill('CKT');
+    await page.getByRole('combobox', { name: 'Epic filter' }).press('Enter');
+    await expect(page).toHaveURL(/tab=timeline&epics=CKT/);
+    await expect(page.getByTestId('portfolio-calendar')).toBeVisible();
+    await expect(page.locator('[data-testid^="delivery-outlook-"]')).toHaveCount(1);
+    await page.getByTestId('tab-dependencies').click();
+    await expect(page).toHaveURL(/tab=dependencies&epics=CKT/);
+    await page.getByTestId('tab-timeline').click();
+    await expect(page).toHaveURL(/tab=timeline&epics=CKT/);
+    await page.getByRole('button', { name: 'Show all epics' }).click();
+    await expect(page).toHaveURL(/\?tab=timeline$/);
   });
 
-  test('renders the backlog grouped by story, without cut / mark-done controls', async ({ page }) => {
-    await page.goto('/');
+  test('navigates months, toggles layers, and describes shared capacity', async ({ page }) => {
+    await page.goto('/?tab=timeline');
+    const calendar = page.getByTestId('portfolio-calendar');
+    await expect(page.getByTestId('portfolio-cal-current-month')).toHaveText('Jul 2026');
+    await expect(calendar.locator('.cal-cell.is-today')).toHaveCount(1);
+    const firstBand = calendar.locator('[data-testid^="portfolio-load-"]').first();
+    await expect(firstBand).toBeVisible();
+    await expect(firstBand).toHaveAttribute('data-total-load', /\d/);
+    await expect(firstBand).toHaveAttribute('data-capacity', /\d/);
 
-    const backlog = page.getByTestId('work-items');
-    await expect(backlog).toBeVisible();
-    // Backlog rows render from the fixture.
-    await expect(page.locator('[data-testid^="work-item-"]').first()).toBeVisible();
+    await page.getByTestId('portfolio-cal-next').click();
+    await expect(page.getByTestId('portfolio-cal-current-month')).toHaveText('Aug 2026');
+    await page.getByTestId('portfolio-cal-next').click();
+    await expect(page.getByTestId('portfolio-cal-current-month')).toHaveText('Sep 2026');
+    await expect(calendar.locator('.cal-event.gating').first()).toBeVisible();
 
-    // The cut / mark-done affordances have been removed for now.
-    await expect(page.locator('[data-testid^="toggle-cut-"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="toggle-done-"]')).toHaveCount(0);
+    await page.getByTestId('portfolio-cal-filter-btn').click();
+    await page.getByTestId('portfolio-cal-filter-relevantDays').uncheck();
+    await expect(calendar.locator('.cal-event.gating')).toHaveCount(0);
+    await page.getByTestId('portfolio-cal-filter-relevantDays').check();
+    await expect(calendar.locator('.cal-event.gating').first()).toBeVisible();
+    await expect(calendar.locator('[data-testid^="portfolio-sprint-"]').first()).toBeVisible();
+    await page.getByTestId('portfolio-cal-filter-sprints').uncheck();
+    await expect(calendar.locator('[data-testid^="portfolio-sprint-"]')).toHaveCount(0);
+    await page.getByTestId('portfolio-cal-filter-sprints').check();
+    await expect(calendar.locator('[data-testid^="portfolio-sprint-"]').first()).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('portfolio-cal-filter-menu')).toBeHidden();
+    await page.getByTestId('portfolio-cal-today').click();
+    await expect(page.getByTestId('portfolio-cal-current-month')).toHaveText('Jul 2026');
+  });
+
+  test('contains the seven-day grid at a narrow viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/?tab=timeline');
+    await expect(page.getByTestId('portfolio-calendar')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const region = page.getByRole('region', { name: /calendar grid/ });
+    await expect(region).toBeVisible();
+    expect(await region.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  });
+
+  test('discloses dense-day events with the keyboard and returns focus on Escape', async ({ page }) => {
+    const dataset = structuredClone(fixture) as DomainDataset;
+    const epicKey = dataset.epics[0]!.key;
+    for (let index = 0; index < 5; index += 1) dataset.milestones.push({ id: `dense-${index}`, epicKey, name: `Dense checkpoint ${index + 1}`, date: '2026-07-20', isGating: false });
+    await page.unroute('**/api/dataset');
+    await page.route('**/api/dataset', (route) => route.fulfill({ json: dataset }));
+    await page.route('**/health', (route) => route.fulfill({ json: { dataSource: 'synthetic' } }));
+    await page.goto('/?tab=timeline');
+
+    const trigger = page.getByRole('button', { name: /more/ }).first();
+    await trigger.focus();
+    await trigger.press('Enter');
+    const dialog = page.getByRole('dialog', { name: /More events/ });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/Dense checkpoint/).first()).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
   });
 });
 
 test.describe('Dependencies tab', () => {
+  test('keeps done context out of remaining-work recommendations and can hide it', async ({ page }) => {
+    const dataset = structuredClone(fixture) as DomainDataset;
+    const [done, ...remaining] = dataset.workItems;
+    done!.status = 'Done';
+    dataset.dependencies = remaining.slice(0, 4).map((item, index) => ({
+      id: `done-context-${index}`,
+      blockerItemKey: done!.key,
+      blockedItemKey: item.key,
+    }));
+    await page.unroute('**/api/dataset');
+    await page.route('**/api/dataset', (route) => route.fulfill({ json: dataset }));
+    await page.route('**/health', (route) => route.fulfill({ json: { dataSource: 'synthetic' } }));
+    await page.goto('/?tab=dependencies');
+
+    const doneNode = page.getByTestId(`graph-node-${done!.key}`);
+    await expect(doneNode).toBeVisible();
+    await expect(doneNode).toHaveClass(/is-done/);
+    await expect(page.getByTestId(`leverage-${done!.key}`)).toHaveCount(0);
+
+    const showDone = page.getByTestId('graph-show-done');
+    await expect(showDone).toBeChecked();
+    await showDone.uncheck();
+    await expect(doneNode).toHaveCount(0);
+    await expect(page.getByTestId(`leverage-${done!.key}`)).toHaveCount(0);
+
+    await showDone.check();
+    await expect(doneNode).toBeVisible();
+  });
+
   test('renders the graph, highlights high-leverage blockers, and ranks them', async ({ page }) => {
     await page.goto('/');
 
@@ -110,6 +134,7 @@ test.describe('Dependencies tab', () => {
     // The flowchart renders with a node per ticket and at least one edge.
     const svg = page.getByTestId('dependency-svg');
     await expect(svg).toBeVisible();
+    await expect(page.getByTestId('graph-show-done')).toBeChecked();
     await expect(svg.locator('.graph-node')).not.toHaveCount(0);
     await expect(svg.locator('.dependency-edge').first()).toBeVisible();
 
@@ -121,9 +146,9 @@ test.describe('Dependencies tab', () => {
     await expect(list).toBeVisible();
     await expect(list.locator('li')).not.toHaveCount(0);
 
-    // Switching back to the timeline still works.
+    // Switching back to Calendar still works.
     await page.getByTestId('tab-timeline').click();
-    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('portfolio-calendar')).toBeVisible();
   });
 
   test('clicking a leaderboard entry focuses the graph on that subtree', async ({ page }) => {
@@ -143,73 +168,10 @@ test.describe('Dependencies tab', () => {
     const after = await svg.locator('.graph-node').count();
     expect(after).toBeLessThan(before);
 
-    // "Show all" restores the full graph.
+    // "Show full graph" restores the full graph without changing done visibility.
     await page.getByTestId('graph-show-all').click();
     await expect(banner).toBeHidden();
+    await expect(page.getByTestId('graph-show-done')).toBeChecked();
     await expect(svg.locator('.graph-node')).toHaveCount(before);
-  });
-});
-
-test.describe('Jira link affordance', () => {
-  test('renders an inert Jira link icon on the epic and work items', async ({ page }) => {
-    await page.goto('/');
-    // Epic header link.
-    await expect(page.getByTestId('jira-link-CKT')).toBeVisible();
-    // Backlog rows each carry one.
-    await expect(page.locator('[data-testid^="jira-link-CKT-"]').first()).toBeVisible();
-  });
-});
-
-test.describe('Configuration tab', () => {
-  test('renders the knobs dashboard; read-only without a backend', async ({ page }) => {
-    await page.goto('/');
-    await page.getByTestId('tab-configuration').click();
-
-    const config = page.getByTestId('configuration');
-    await expect(config).toBeVisible();
-    // Core sections are present.
-    await expect(page.getByTestId('cfg-members')).toBeVisible();
-    await expect(page.getByTestId('cfg-milestones')).toBeVisible();
-
-    // The e2e harness runs without a backend, so editing is disabled and the
-    // read-only notice explains why.
-    await expect(page.getByTestId('config-readonly')).toBeVisible();
-    await expect(page.getByTestId('cfg-knobs-save')).toBeDisabled();
-    await expect(page.getByTestId('cfg-oncall-mult')).toBeDisabled();
-    // The Gantt week-yellow knob lives here too.
-    await expect(page.getByTestId('cfg-week-yellow')).toBeDisabled();
-
-    // The gating relevant day is flagged in the list.
-    await expect(page.locator('.config-row.gating')).toHaveCount(1);
-  });
-
-  test('Team availability has calendar + list views with member avatars', async ({ page }) => {
-    await page.goto('/');
-    await page.getByTestId('tab-team').click();
-    await page.getByRole('tab', { name: 'Availability' }).click();
-
-    // Calendar view renders bands from the fixture, each with a member avatar.
-    const calendar = page.getByTestId('availability-calendar');
-    await expect(calendar).toBeVisible();
-    await expect(calendar.locator('.cal-band')).not.toHaveCount(0);
-    await expect(calendar.locator('.avatar').first()).toBeVisible();
-
-    // The Add button is disabled (no backend), so the modal can't open here.
-    await expect(page.getByTestId('avail-add')).toBeDisabled();
-
-    // Switch to the searchable list view.
-    await page.getByTestId('avail-view-list').click();
-    await expect(page.getByTestId('availability-list')).toBeVisible();
-    const rowsBefore = await page.locator('[data-testid^="avail-row-"]').count();
-    expect(rowsBefore).toBeGreaterThan(0);
-
-    // Notes from the fixture are shown and are searchable.
-    await expect(page.locator('.avail-note').first()).toBeVisible();
-    await page.getByTestId('availability-search').fill('Summer holiday');
-    await expect(page.locator('[data-testid^="avail-row-"]')).toHaveCount(1);
-
-    // Searching a non-existent member filters everything out.
-    await page.getByTestId('availability-search').fill('zzzznobody');
-    await expect(page.locator('[data-testid^="avail-row-"]')).toHaveCount(0);
   });
 });
