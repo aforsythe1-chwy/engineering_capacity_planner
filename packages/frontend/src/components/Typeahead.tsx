@@ -4,6 +4,10 @@ import { parseJiraTicketKey } from '@ecp/shared';
 import { JiraKeyLink } from './JiraLink';
 
 export interface TypeaheadOption { id: string; label: string; hint?: string; imageUrl?: string | null; }
+export interface TypeaheadMenuProps<T extends TypeaheadOption> {
+  listboxId: string; options: T[]; activeIndex: number; selectedId?: string | null; style?: CSSProperties; portal?: boolean;
+  loading?: boolean; error?: string | null; emptyLabel?: string; onActiveIndexChange: (index: number) => void; onSelect: (option: T) => void;
+}
 interface TypeaheadProps<T extends TypeaheadOption> {
   value: string; onChange: (text: string) => void; search: (query: string) => Promise<T[]>; onSelect: (option: T) => void;
   placeholder?: string; disabled?: boolean; searchOnEmpty?: boolean; debounceMs?: number; showLoading?: boolean; onFocus?: () => void;
@@ -55,13 +59,7 @@ export function Typeahead<T extends TypeaheadOption>({
   const dismiss = () => { close(); onDismiss?.(); };
   const choose = (option: T) => { onSelect(option); setOpen(false); setFocusedUnedited(false); requestAnimationFrame(() => inputRef.current?.focus()); };
   const active = options[activeIndex]; const showMenu = open && !disabled && (query !== '' || searchOnEmpty || (searchAllOnFocus && focusedUnedited));
-  const menu = showMenu ? <div ref={menuRef} style={portalMenu ? position : undefined} id={listboxId} className={`typeahead-menu${portalMenu ? ' typeahead-menu-portal' : ''}`} role="listbox">
-    {loading && showLoading && <div className="typeahead-status">Searching…</div>}{error && <div className="typeahead-status error">⚠ {error}</div>}
-    {!loading && !error && options.length === 0 && <div className="typeahead-status">{emptyLabel}</div>}
-    {options.map((option, index) => <button key={option.id} id={`${listboxId}-${option.id}`} type="button" className={`typeahead-option${index === activeIndex ? ' is-active' : ''}${option.id === selectedId ? ' is-selected' : ''}`} role="option" tabIndex={-1} aria-selected={option.id === selectedId} data-testid="typeahead-option" onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
-      <span className="typeahead-main">{renderOptionLeading?.(option)}{option.imageUrl && <img className="typeahead-avatar" src={option.imageUrl} alt="" width={20} height={20} />}<span className="typeahead-label">{option.label}</span></span>{option.hint && <TypeaheadHint hint={option.hint} />}
-    </button>)}
-  </div> : null;
+  const menu = showMenu ? <div ref={menuRef}><TypeaheadMenu listboxId={listboxId} options={options} activeIndex={activeIndex} selectedId={selectedId} style={portalMenu ? position : undefined} portal={portalMenu} loading={loading && showLoading} error={error} emptyLabel={emptyLabel} onActiveIndexChange={setActiveIndex} onSelect={choose} renderOptionLeading={renderOptionLeading} /></div> : null;
   return <div className={`typeahead${inputLeading ? ' has-leading' : ''}`} ref={boxRef} data-testid={testId}>
     {inputLeading && <span className="typeahead-input-leading" aria-hidden="true">{inputLeading}</span>}
     <input ref={inputRef} type={inputType} className={inputClassName} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={listboxId} aria-activedescendant={open && active ? `${listboxId}-${active.id}` : undefined} value={value} disabled={disabled} placeholder={placeholder}
@@ -69,6 +67,15 @@ export function Typeahead<T extends TypeaheadOption>({
       onFocus={() => { onFocus?.(); setFocusedUnedited(searchAllOnFocus); setOpen(true); setActiveIndex(0); if (selectValueOnFocus) requestAnimationFrame(() => inputRef.current?.select()); }}
       onKeyDown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); setActiveIndex((index) => Math.min(index + 1, Math.max(0, options.length - 1))); } else if (event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActiveIndex((index) => Math.max(index - 1, 0)); } else if (event.key === 'Home' && open) { event.preventDefault(); setActiveIndex(0); } else if (event.key === 'End' && open) { event.preventDefault(); setActiveIndex(Math.max(0, options.length - 1)); } else if (event.key === 'Enter' && active) { event.preventDefault(); choose(active); } else if (event.key === 'Escape') { event.preventDefault(); dismiss(); inputRef.current?.focus(); } }} />
     {portalMenu ? menu && createPortal(menu, document.body) : menu}
+  </div>;
+}
+export function TypeaheadMenu<T extends TypeaheadOption>({ listboxId, options, activeIndex, selectedId, style, portal = false, loading = false, error = null, emptyLabel = 'No matches', onActiveIndexChange, onSelect, renderOptionLeading }: TypeaheadMenuProps<T> & { renderOptionLeading?: (option: T) => ReactNode }) {
+  return <div style={style} id={listboxId} className={`typeahead-menu${portal ? ' typeahead-menu-portal' : ''}`} role="listbox">
+    {loading && <div className="typeahead-status">Searching…</div>}{error && <div className="typeahead-status error">⚠ {error}</div>}
+    {!loading && !error && options.length === 0 && <div className="typeahead-status">{emptyLabel}</div>}
+    {options.map((option, index) => <button key={option.id} id={`${listboxId}-${option.id}`} type="button" className={`typeahead-option${index === activeIndex ? ' is-active' : ''}${option.id === selectedId ? ' is-selected' : ''}`} role="option" tabIndex={-1} aria-selected={option.id === selectedId} data-testid="typeahead-option" onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => onActiveIndexChange(index)} onClick={() => onSelect(option)}>
+      <span className="typeahead-main">{renderOptionLeading?.(option)}{option.imageUrl && <img className="typeahead-avatar" src={option.imageUrl} alt="" width={20} height={20} />}<span className="typeahead-label">{option.label}</span></span>{option.hint && <TypeaheadHint hint={option.hint} />}
+    </button>)}
   </div>;
 }
 function TypeaheadHint({ hint }: { hint: string }) { const key = parseJiraTicketKey(hint); return <span className="typeahead-hint">{key === hint ? <JiraKeyLink jiraKey={hint} /> : hint}</span>; }

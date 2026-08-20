@@ -60,7 +60,7 @@ export const SETTING_KEYS = {
   STANDUP_PSEUDOGROUPS: 'standup_pseudogroups',
 } as const;
 
-export const STANDUP_DEFAULTS = { SPEAKER_THRESHOLD_SECONDS: 45 } as const;
+export const STANDUP_DEFAULTS = { SPEAKER_THRESHOLD_SECONDS: 20 } as const;
 export interface StandupPseudogroup { id: string; name: string; memberIds: string[]; }
 export interface StandupPseudogroupsSetting { version: 1; groups: StandupPseudogroup[]; }
 

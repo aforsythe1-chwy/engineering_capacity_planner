@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { Users } from 'lucide-react';
 import { effectivePortfolioEpic, epicOwnerId, epicSmes, globalStringSetting, SETTING_KEYS, STANDUP_DEFAULTS, type BandwidthCheckIn, type BandwidthFeeling, type DomainDataset, type StandupMemberTicketContext, type StandupParticipant } from '@ecp/shared';
 import * as api from '../data/api';
 import { boardPresentation, groupStandupTickets, parsePresentation, standupTicketGroupTone } from '../lib/standupStatusPresentation';
+import { deriveStandupRequiredPeople } from '../lib/standupRequiredPeople';
+import { colorFor, memberColorMap } from '../lib/memberColors';
 import { StandupSpeakerTimer } from './StandupSpeakerTimer';
 import { StandupFireEffect } from './StandupFireEffect';
+import { StandupNoteComposer } from './StandupNoteComposer';
+import { MemberAvatar } from './MemberAvatar';
 
 const feelings: Array<{ value: BandwidthFeeling; label: string; description: string }> = [
   { value: 'purple', label: 'Purple', description: "I don't have enough work to do" },
@@ -155,14 +160,66 @@ function StandupTickets({ context, refreshing, entries }: { context: StandupMemb
   })}</div> : <p className="hint">No tickets in this sprint.</p>}</section>;
 }
 
+function RequiredPeople({ dataset, aggregate }: { dataset: DomainDataset; aggregate: api.StandupAggregate }) {
+  const required = useMemo(() => deriveStandupRequiredPeople(aggregate.notes, aggregate.participants, dataset.members), [aggregate.notes, aggregate.participants, dataset.members]);
+  const colors = useMemo(() => memberColorMap(dataset.members), [dataset.members]);
+  const headingId = `standup-required-people-${aggregate.session.id}`;
+  const audienceCount = required.people.length + (required.allTeamNoteCount ? 1 : 0);
+  return <section className="standup-required-people" aria-labelledby={headingId} data-testid="standup-required-people">
+    <div className="standup-required-people-heading"><span className="standup-required-people-icon" aria-hidden="true"><Users /></span><div><h3 id={headingId}>Required people</h3><p>People with an open follow-up in this standup.</p></div><span className="badge" aria-label={`${audienceCount} ${audienceCount === 1 ? 'required audience' : 'required audiences'}`}>{audienceCount}</span></div>
+    {audienceCount ? <ul className="standup-required-people-list">{required.allTeamNoteCount > 0 && <li className="standup-required-person is-all-team"><span className="standup-required-team-icon" aria-hidden="true"><Users /></span><span><strong>All team</strong><small>{required.allTeamNoteCount} {required.allTeamNoteCount === 1 ? 'follow-up' : 'follow-ups'}</small></span></li>}{required.people.map((person) => <li className="standup-required-person" key={person.id}><MemberAvatar name={person.name} color={colorFor(colors, person.id)} size={30} avatarUrl={person.avatarUrl} /><span><strong>{person.name}</strong><small>{person.noteCount} {person.noteCount === 1 ? 'follow-up' : 'follow-ups'}</small></span></li>)}</ul> : <p className="standup-required-people-empty">No one is required — all follow-ups are complete or deferred.</p>}
+  </section>;
+}
+
 function Notes({ dataset, aggregate, onChange, compact = false }: { dataset: DomainDataset; aggregate: api.StandupAggregate; onChange: (value: api.StandupAggregate) => void; compact?: boolean }) {
-  const [draft, setDraft] = useState(''); const [allTeam, setAllTeam] = useState(true); const [selected, setSelected] = useState<string[]>([]); const [error, setError] = useState<string | null>(null);
-  const members = dataset.members.filter((member) => member.teamId === aggregate.session.teamId && member.active).sort((a, b) => a.name.localeCompare(b.name));
-  const groups = (() => { try { const row = dataset.settings.find((setting) => setting.scope === 'team' && setting.scopeId === aggregate.session.teamId && setting.key === SETTING_KEYS.STANDUP_PSEUDOGROUPS); const value = row ? JSON.parse(row.value) : null; return value?.groups ?? []; } catch { return []; } })() as Array<{ id: string; name: string; memberIds: string[] }>;
-  const options = [...groups.map((group) => ({ id: `group:${group.id}`, label: `${group.name} · Group` })), ...members.map((member) => ({ id: `member:${member.id}`, label: `${member.name} · Person` }))];
-  const audience: api.StandupNoteAudience = allTeam ? { allTeam: true } : { allTeam: false, mentions: selected.map((item) => { const divider = item.indexOf(':'); return { kind: item.slice(0, divider) as 'member' | 'group', id: item.slice(divider + 1) }; }) };
-  const save = async () => { if (!draft.trim() || (!allTeam && !selected.length)) return; try { onChange(await api.createStandupNote(aggregate.session.id, draft, audience, aggregate.session.revision)); setDraft(''); setSelected([]); setAllTeam(true); setError(null); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save note. Your draft is still here.'); } };
+  const [error, setError] = useState<string | null>(null);
+  const [reorderStatus, setReorderStatus] = useState('');
+  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const draggedNoteRef = useRef<string | null>(null);
+  const dropTargetRef = useRef<{ id: string; after: boolean } | null>(null);
+  const editable = aggregate.session.status !== 'completed';
   const mutate = async (action: () => Promise<api.StandupAggregate>) => { try { onChange(await action()); setError(null); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update note.'); } };
   const move = (id: string, direction: number) => { const ids = aggregate.notes.map((note) => note.id); const from = ids.indexOf(id); const to = from + direction; if (to < 0 || to >= ids.length) return; [ids[from], ids[to]] = [ids[to]!, ids[from]!]; void mutate(() => api.reorderStandupNotes(aggregate.session.id, ids, aggregate.session.revision)); };
-  return <section className={compact ? 'standup-notes compact' : 'standup-notes'}><h3>Post-standup notes <span className="hint">{aggregate.notes.length}</span></h3>{aggregate.notes.map((note, index) => <div className={`standup-note${note.state === 'completed' ? ' is-completed' : ''}`} key={note.id}><label><input type="checkbox" checked={note.state === 'completed'} disabled={aggregate.session.status === 'completed'} onChange={() => void mutate(() => api.setStandupNoteState(aggregate.session.id, note.id, note.state === 'completed' ? 'open' : 'completed', aggregate.session.revision))} /> <span className="sr-only">{note.state === 'completed' ? 'Completed' : 'Open'}</span></label><span>{note.body}</span><span className="hint">{note.allTeam ? 'All team' : note.mentions.map((mention) => mention.label).join(', ')}</span>{note.sourceSessionDate && <span className="hint">Carried from {note.sourceSessionDate}</span>}{note.state === 'deferred' && <span className="hint">Deferred to next standup</span>}{aggregate.session.status !== 'completed' && <span className="standup-note-actions"><button type="button" className="link-btn" disabled={index === 0} onClick={() => move(note.id, -1)}>Move up</button><button type="button" className="link-btn" disabled={index === aggregate.notes.length - 1} onClick={() => move(note.id, 1)}>Move down</button><button type="button" className="link-btn" onClick={() => void mutate(() => api.setStandupNoteState(aggregate.session.id, note.id, note.state === 'deferred' ? 'open' : 'deferred', aggregate.session.revision))}>{note.state === 'deferred' ? 'Reopen' : 'Defer'}</button><button type="button" className="link-btn" onClick={() => void mutate(() => api.deleteStandupNote(aggregate.session.id, note.id, aggregate.session.revision))}>Delete</button></span>}</div>)}{aggregate.session.status !== 'completed' && <div className="standup-note-composer"><textarea aria-label="New post-standup note" value={draft} maxLength={4000} onChange={(e) => setDraft(e.target.value)} placeholder="Add follow-up note; choose its audience below" /><label><input type="checkbox" checked={allTeam} onChange={(event) => { setAllTeam(event.target.checked); if (event.target.checked) setSelected([]); }} /> All team</label>{!allTeam && <select multiple value={selected} onChange={(event) => setSelected(Array.from(event.currentTarget.selectedOptions, (option) => option.value))} aria-label="Mention people or groups">{options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>}<button className="btn" disabled={!draft.trim() || (!allTeam && !selected.length)} onClick={() => void save()}>Add note</button></div>}{error && <p className="config-error" role="alert">{error}</p>}</section>;
+  const keyboardMove = (event: ReactKeyboardEvent<HTMLButtonElement>, id: string, index: number) => { const direction = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0; if (!direction) return; event.preventDefault(); const target = index + direction; if (target < 0 || target >= aggregate.notes.length) { setReorderStatus(`Note is already ${direction < 0 ? 'first' : 'last'}.`); return; } move(id, direction); setReorderStatus(`Moved note to position ${target + 1} of ${aggregate.notes.length}.`); };
+  const finishDrag = () => { draggedNoteRef.current = null; dropTargetRef.current = null; setDraggedNoteId(null); setDropTarget(null); };
+  const dragStart = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => { event.preventDefault(); draggedNoteRef.current = id; setDraggedNoteId(id); event.currentTarget.setPointerCapture(event.pointerId); };
+  useEffect(() => {
+    if (!draggedNoteId) return;
+    const pointerMove = (event: PointerEvent) => {
+      const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-standup-note-id]');
+      const id = row?.dataset.standupNoteId;
+      if (!id || id === draggedNoteRef.current) { dropTargetRef.current = null; setDropTarget(null); return; }
+      const bounds = row.getBoundingClientRect(); const next = { id, after: event.clientY >= bounds.top + bounds.height / 2 };
+      if (dropTargetRef.current?.id === next.id && dropTargetRef.current.after === next.after) return;
+      dropTargetRef.current = next; setDropTarget(next);
+    };
+    const pointerUp = () => {
+      const draggedId = draggedNoteRef.current; const target = dropTargetRef.current;
+      if (draggedId && target) { const ids = aggregate.notes.map((note) => note.id); const from = ids.indexOf(draggedId); let insertion = ids.indexOf(target.id) + (target.after ? 1 : 0); const next = [...ids]; next.splice(from, 1); if (from < insertion) insertion -= 1; next.splice(insertion, 0, draggedId); if (next.some((noteId, index) => noteId !== ids[index])) void mutate(() => api.reorderStandupNotes(aggregate.session.id, next, aggregate.session.revision)); }
+      finishDrag();
+    };
+    window.addEventListener('pointermove', pointerMove); window.addEventListener('pointerup', pointerUp); window.addEventListener('pointercancel', finishDrag);
+    return () => { window.removeEventListener('pointermove', pointerMove); window.removeEventListener('pointerup', pointerUp); window.removeEventListener('pointercancel', finishDrag); };
+  }, [aggregate, draggedNoteId]);
+  const projection = !compact && aggregate.session.status === 'post_standup';
+  return <section className={`standup-notes${compact ? ' compact' : ''}${projection ? ' is-projection' : ''}`}>
+    <div className="standup-notes-heading"><h3>Post-standup notes</h3><span className="badge" aria-label={`${aggregate.notes.length} ${aggregate.notes.length === 1 ? 'note' : 'notes'}`}>{aggregate.notes.length}</span></div>
+    {projection && <RequiredPeople dataset={dataset} aggregate={aggregate} />}
+    {aggregate.notes.length > 0 && <ul className="standup-note-list">{aggregate.notes.map((note, index) => {
+      const audience = note.allTeam ? 'All team' : note.mentions.map((mention) => mention.label).join(', ') || 'No audience';
+      const completed = note.state === 'completed';
+      const isDropTarget = dropTarget?.id === note.id;
+      const dropPosition = dropTarget?.after ? 'after' : 'before';
+      return <li className={`standup-note${completed ? ' is-completed' : ''}${!editable ? ' is-readonly' : ''}${draggedNoteId === note.id ? ' is-dragging' : ''}${isDropTarget ? ` drop-${dropPosition}` : ''}`} key={note.id} data-standup-note-id={note.id}>
+        {editable && <button type="button" className="standup-note-drag-handle" aria-label="Reorder note. Drag or use Arrow Up and Arrow Down." aria-keyshortcuts="ArrowUp ArrowDown" title="Drag to reorder; use Arrow Up or Arrow Down when focused" onPointerDown={(event) => dragStart(event, note.id)} onKeyDown={(event) => keyboardMove(event, note.id, index)}>⠿</button>}
+        <label className="standup-note-toggle"><input type="checkbox" checked={completed} disabled={aggregate.session.status === 'completed'} onChange={() => void mutate(() => api.setStandupNoteState(aggregate.session.id, note.id, completed ? 'open' : 'completed', aggregate.session.revision))} /><span className="sr-only">Mark {note.body} as {completed ? 'open' : 'completed'}</span></label>
+        <div className="standup-note-content"><span className="standup-note-body">{note.body}</span><div className="standup-note-lower"><span className="standup-note-meta"><span>For {audience}</span>{note.sourceSessionDate && <span>Carried from {note.sourceSessionDate}</span>}{note.state === 'deferred' && <span>Deferred to next standup</span>}</span>{editable && <span className="standup-note-actions"><button type="button" className="link-btn" onClick={() => void mutate(() => api.setStandupNoteState(aggregate.session.id, note.id, note.state === 'deferred' ? 'open' : 'deferred', aggregate.session.revision))}>{note.state === 'deferred' ? 'Reopen' : 'Defer'}</button><button type="button" className="link-btn danger" onClick={() => void mutate(() => api.deleteStandupNote(aggregate.session.id, note.id, aggregate.session.revision))}>Delete</button></span>}</div></div>
+        {isDropTarget && <span className={`standup-note-drop-preview ${dropPosition}`} aria-hidden="true">Drop note here</span>}
+      </li>;
+    })}</ul>}
+    <div className="sr-only" aria-live="polite">{reorderStatus}</div>
+    {aggregate.session.status !== 'completed' && <StandupNoteComposer dataset={dataset} teamId={aggregate.session.teamId} sessionId={aggregate.session.id} expectedRevision={aggregate.session.revision} compact={compact} onSave={async (body, audience, sessionId, expectedRevision) => onChange(await api.createStandupNote(sessionId, body, audience, expectedRevision))} />}
+    {error && <p className="config-error" role="alert">{error}</p>}
+  </section>;
 }

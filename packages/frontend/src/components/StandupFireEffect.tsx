@@ -16,7 +16,7 @@ function fireContour(phase: number, floor: number, primary: number, secondary: n
 }
 
 export function StandupFireEffect({ paused, heat }: { paused: boolean; heat: number }) {
-  const emberCount = 3 + heat * 3;
+  const emberCount = 10 + heat * 7;
   return <div className={`standup-fire-effect heat-${heat}${paused ? ' is-paused' : ''}`} aria-hidden="true">
     <svg className="standup-fire-sheet" viewBox="0 0 320 180" preserveAspectRatio="none" focusable="false">
       <polygon className="standup-fire-layer standup-fire-outer" points={fireContour(5, 180, 84, 40)} />
