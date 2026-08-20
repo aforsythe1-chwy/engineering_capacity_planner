@@ -15,6 +15,7 @@ dist/
 *.db-wal
 /data/
 /packages/*/data/
+**/data/cache/
 
 # Test / coverage
 coverage/
