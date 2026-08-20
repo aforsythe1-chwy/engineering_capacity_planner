@@ -3,3 +3,4 @@ export * from './importer.js';
 export * from './settings.js';
 export * from './dates.js';
 export * from './jira.js';
+export * from './standup-audio.js';

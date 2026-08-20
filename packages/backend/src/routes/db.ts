@@ -11,7 +11,7 @@ import { importDatabaseFromBuffer, snapshotDatabase, SnapshotError } from '../db
 import { HttpError } from '../http-error.js';
 
 /** Upload cap for an imported database (SQLite files stay comfortably small). */
-const IMPORT_BODY_LIMIT = 64 * 1024 * 1024;
+const IMPORT_BODY_LIMIT = 256 * 1024 * 1024;
 
 export function registerDbRoutes(app: FastifyInstance, db: Db, config: AppConfig): void {
   // Raw-bytes upload for the import: the frontend POSTs the file body directly

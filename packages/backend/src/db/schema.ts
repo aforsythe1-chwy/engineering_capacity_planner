@@ -255,6 +255,33 @@ CREATE TABLE IF NOT EXISTS standup_note_mention (
   UNIQUE(note_id, mention_kind, mention_id)
 );
 
+-- Walk-off songs are optional facilitation preferences. They intentionally sit
+-- outside DomainDataset replacement so Jira sync never rewrites local media.
+CREATE TABLE IF NOT EXISTS standup_audio_track (
+  id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  original_filename TEXT NOT NULL,
+  mime_type TEXT NOT NULL CHECK(mime_type = 'audio/mpeg'),
+  byte_length INTEGER NOT NULL CHECK(byte_length > 0),
+  sha256 TEXT NOT NULL UNIQUE,
+  audio_blob BLOB NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS standup_audio_team_default (
+  team_id TEXT PRIMARY KEY REFERENCES team(id) ON DELETE CASCADE,
+  track_id TEXT NOT NULL REFERENCES standup_audio_track(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS standup_audio_member_override (
+  member_id TEXT PRIMARY KEY REFERENCES team_member(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK(mode IN ('track', 'off')),
+  track_id TEXT REFERENCES standup_audio_track(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL,
+  CHECK((mode = 'track' AND track_id IS NOT NULL) OR (mode = 'off' AND track_id IS NULL))
+);
+
 
 CREATE TABLE IF NOT EXISTS standup_context_snapshot (
   session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE CASCADE,
@@ -283,6 +310,8 @@ CREATE INDEX IF NOT EXISTS idx_placement_sprint   ON planned_placement(sprint_id
 CREATE INDEX IF NOT EXISTS idx_sync_log_time       ON sync_log(synced_at);
 CREATE INDEX IF NOT EXISTS idx_standup_session_team_date ON standup_session(team_id, standup_date);
 CREATE INDEX IF NOT EXISTS idx_standup_participant_session ON standup_participant(session_id, position);
+CREATE INDEX IF NOT EXISTS idx_standup_audio_team_default_track ON standup_audio_team_default(track_id);
+CREATE INDEX IF NOT EXISTS idx_standup_audio_member_override_track ON standup_audio_member_override(track_id);
 `;
 
 /** Order tables must be inserted into to satisfy foreign keys. */

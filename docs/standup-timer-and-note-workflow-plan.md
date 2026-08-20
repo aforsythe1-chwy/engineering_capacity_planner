@@ -1922,7 +1922,7 @@ Manual visual verification must cover:
 
 ## 14. Walk-off audio synchronized with fire
 
-**Status:** planned on 2026-08-20; not implemented
+**Status:** implemented through Slice 5 on 2026-08-20; consolidated manual browser/audio validation remains pending.
 
 **Requested outcome:** allow a team to upload and select a default MP3 walk-off song. A member can
 inherit that default, select a different uploaded song, or explicitly opt out. Once the facilitator
@@ -2295,6 +2295,15 @@ an update to this durable continuation record before the next slice begins.
 
 #### Slice 1 — contracts, schema, and repository
 
+**Completed 2026-08-20:** added shared track/assignment contracts and the pure effective-track
+resolver; added the three additive SQLite tables and assignment indexes; implemented focused track
+metadata/BLOB, capacity, assignment, and protected-delete repository operations. Focused repository
+tests cover fresh and pre-audio databases, duplicate hashes, limits, inherit/off/custom precedence,
+inactive members, cross-team rejection, and delete conflicts. Validated with
+`npm --workspace @ecp/backend test -- standup-audio`, `npm --workspace @ecp/shared run build`, and
+`npm --workspace @ecp/backend run typecheck` after `nvm use`. No HTTP or user-facing surface exists
+yet, so the manual checkpoint is repository-level only; continue with Slice 2 after acceptance.
+
 - Add shared metadata/assignment types and pure effective-track resolution.
 - Add fresh-schema and additive-migration tables, indexes, and constraints.
 - Implement focused repository operations for metadata, BLOB insert/read ranges, aggregate
@@ -2303,6 +2312,15 @@ an update to this durable continuation record before the next slice begins.
   inactive members, cross-team rejection, duplicate hashes, limits, cascades, and delete conflicts.
 
 #### Slice 2 — backend HTTP and database portability
+
+**Completed 2026-08-20:** added raw MP3 upload/list/ranged-content/delete routes and atomic team
+assignment routes, with the two specific upload headers added to CORS. Uploads screen MP3 signatures,
+deduplicate with a `409` track summary, and enforce the 12 MiB route limit; content supports ETag,
+`200`/`206`/`416`, and validated ranges. Database imports now support 256 MiB, atomically replace
+audio BLOBs/assignments, clear audio for legacy snapshots, validate imported media and references,
+and report audio counts. Validated with `npm --workspace @ecp/backend test -- standup-audio snapshot`
+and `npm --workspace @ecp/backend run typecheck` after `nvm use`. Continue with Slice 3 after the
+backend checkpoint is accepted.
 
 - Add raw MP3 upload, metadata list, ranged content, deletion, and team assignment routes.
 - Register body parser/limits and the two explicit CORS headers without broadening CORS generally.
@@ -2314,6 +2332,11 @@ an update to this durable continuation record before the next slice begins.
 
 #### Slice 3 — Configuration library and assignments
 
+**Completed 2026-08-20:** added the Configuration Walk-off audio panel with MP3 upload, one-at-a-time
+preview/stop, protected deletion feedback, searchable team-default selection, and per-member
+inherit/off/custom assignment editing. The panel uses the existing dark surfaces, Typeahead overlay,
+avatars, compact controls, and responsive wrapping.
+
 - Add typed frontend API functions and query/load state.
 - Build the token-consistent track library, upload workflow, one-at-a-time preview, team-default
   `Typeahead`, and focused member override editor.
@@ -2322,6 +2345,12 @@ an update to this durable continuation record before the next slice begins.
 
 #### Slice 4 — modal audio controller and fire synchronization
 
+**Completed 2026-08-20:** added a focused `useStandupWalkOffAudio` controller. It resolves the
+current member's effective track, requires explicit modal-local enablement, uses the timer heat as
+its only gain input (`0`, `.16`, `.32`, `.55`, `.80`), loops, pauses/resumes, resets on turn/stage
+changes, mutes, retries after browser blocking, and cleans up its media graph at unmount. The
+Standup header now keeps a compact enable/mute/retry control subordinate to participant actions.
+
 - Expose existing timer heat/paused/turn identity cleanly to the modal without duplicating time.
 - Implement the audio controller, permission enablement, fixed gain ramp, loop, pause/resume,
   reset/advance/close cleanup, mute, retry, and unsupported-browser fallback.
@@ -2329,6 +2358,12 @@ an update to this durable continuation record before the next slice begins.
   hierarchy.
 
 #### Slice 5 — integration, visual QA, and documentation
+
+**Completed 2026-08-20:** added focused persistence, route/range, and snapshot round-trip coverage;
+ran shared/backend/frontend type checks. The configuration helper copy documents the MP3 limit,
+shareable database storage, rights reminder, facilitator enablement, and the browser-controlled
+screen-share-audio limitation. Real MP3/browser/meeting-client audio validation is explicitly
+deferred to the final manual walkthrough.
 
 - Run complete backend/frontend regressions and focused E2E with media/Web Audio test doubles.
 - Test a real MP3 manually in supported browsers and screen sharing, including the meeting client's

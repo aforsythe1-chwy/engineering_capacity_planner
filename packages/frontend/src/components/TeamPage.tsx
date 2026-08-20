@@ -144,6 +144,7 @@ function TeamMemberPicker({ members, value, onChange }: { members: DomainDataset
 function BandwidthView({ checkIns, month, setMonth, loading }: { checkIns: BandwidthCheckIn[]; month: string; setMonth: (month: string) => void; loading: boolean }) {
   const [calendarMode, setCalendarMode] = useState<'average' | 'count'>('average');
   const days = monthDays(month);
+  const leadingDays = new Date(`${month}T12:00:00`).getDay();
   const maxFeelingCount = Math.max(1, ...days.flatMap((date) => feelings.map((feeling) =>
     checkIns.filter((entry) => entry.date === date && entry.feeling === feeling.value).length,
   )));
@@ -160,13 +161,14 @@ function BandwidthView({ checkIns, month, setMonth, loading }: { checkIns: Bandw
           <button type="button" role="tab" aria-label="Count by feeling" title="Count by feeling" aria-selected={calendarMode === 'count'} className={`segment${calendarMode === 'count' ? ' active' : ''}`} onClick={() => setCalendarMode('count')}><BandwidthModeIcon mode="count" /></button>
         </div>
       </div>
-      <div className="bandwidth-calendar">{days.map((date) => {
+      <div className="bandwidth-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="bandwidth-calendar">{Array.from({ length: leadingDays }, (_, index) => <span className="bandwidth-day-placeholder" key={`leading-${index}`} aria-hidden="true" />)}{days.map((date) => {
         const entries = checkIns.filter((entry) => entry.date === date);
         const counts = Object.fromEntries(feelings.map((feeling) => [feeling.value, entries.filter((entry) => entry.feeling === feeling.value).length])) as Record<BandwidthFeeling, number>;
         const score = entries.length ? entries.reduce((sum, entry) => sum + ({ purple: -1, green: 0, yellow: 1, red: 2 }[entry.feeling]), 0) / entries.length : null;
         const averageColor: BandwidthFeeling | null = score === null ? null : score < -0.5 ? 'purple' : score < 0.5 ? 'green' : score < 1.5 ? 'yellow' : 'red';
         const color = calendarMode === 'average' ? averageColor : null;
-        return <div key={date} className={`bandwidth-day${calendarMode === 'count' ? ' count-mode' : ''}${color ? ` feeling-${color}` : ''}`} aria-label={`${date}: ${entries.length} reports`}>
+        return <div key={date} className={`bandwidth-day${calendarMode === 'count' ? ' count-mode' : ''}${color ? ` feeling-${color}` : ''}`} aria-label={`${date}: ${entries.length} reports${averageColor ? `; average signal ${averageColor}` : ''}`}>
           <span>{Number(date.slice(-2))}</span>
           {entries.length
             ? calendarMode === 'count'

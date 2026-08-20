@@ -12,6 +12,7 @@ import {
   SnapshotError,
 } from '../src/db/snapshot.js';
 import { generateSyntheticDataset } from '../src/importer/synthetic.js';
+import { createStandupAudioTrack, getTeamStandupAudioSettings, replaceTeamStandupAudioSettings } from '../src/db/standup-audio.js';
 
 let dir: string;
 
@@ -112,5 +113,26 @@ describe('importDatabaseFromBuffer', () => {
     db.close();
     const after = readdirSync(tmpdir()).filter((f) => f.startsWith('ecp-import-'));
     expect(after.length).toBeLessThanOrEqual(before.length);
+  });
+
+  it('round-trips audio BLOBs and assignments, and clears them for legacy imports', () => {
+    const srcPath = join(dir, 'audio-source.db');
+    const src = openDatabase({ path: srcPath }); const sourceData = generateSyntheticDataset({ seed: 3 });
+    writeDataset(src, sourceData);
+    const song = createStandupAudioTrack(src, { displayName: 'Walk off', originalFilename: 'walk-off.mp3', mimeType: 'audio/mpeg', audio: Buffer.from([1, 2, 3]) });
+    replaceTeamStandupAudioSettings(src, sourceData.teams[0]!.id, { defaultTrackId: song.id, memberAssignments: [] });
+    src.pragma('wal_checkpoint(TRUNCATE)'); src.close();
+
+    const target = openDatabase(); writeDataset(target, generateSyntheticDataset({ seed: 9 }));
+    const stale = createStandupAudioTrack(target, { displayName: 'Stale', originalFilename: 'stale.mp3', mimeType: 'audio/mpeg', audio: Buffer.from([4]) });
+    expect(stale.id).toBeTruthy();
+    const imported = importDatabaseFromBuffer(target, readFileSync(srcPath));
+    expect(imported).toMatchObject({ audioTracks: 1, audioTeamDefaults: 1, audioMemberOverrides: 0 });
+    expect(getTeamStandupAudioSettings(target, sourceData.teams[0]!.id).defaultTrackId).toBe(song.id);
+
+    const legacyPath = join(dir, 'legacy.db'); const legacy = openDatabase({ path: legacyPath }); writeDataset(legacy, generateSyntheticDataset({ seed: 1 })); legacy.pragma('wal_checkpoint(TRUNCATE)'); legacy.close();
+    importDatabaseFromBuffer(target, readFileSync(legacyPath));
+    expect(target.prepare('SELECT COUNT(*) AS n FROM standup_audio_track').get()).toEqual({ n: 0 });
+    target.close();
   });
 });

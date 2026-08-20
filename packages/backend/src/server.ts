@@ -11,6 +11,7 @@ import { registerConfigRoutes } from './routes/config.js';
 import { registerBandwidthRoutes } from './routes/bandwidth.js';
 import { registerStandupRoutes } from './routes/standup.js';
 import { registerDbRoutes } from './routes/db.js';
+import { registerStandupAudioRoutes, UPLOAD_HEADERS } from './routes/standup-audio.js';
 import { registerJiraRoutes } from './routes/jira.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerPortfolioRoutes } from './routes/portfolio.js';
@@ -94,7 +95,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   app.addHook('onRequest', async (req, reply) => {
     reply.header('Access-Control-Allow-Origin', config.corsOrigin);
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    reply.header('Access-Control-Allow-Headers', ['Content-Type', ...UPLOAD_HEADERS].join(', '));
     if (req.method === 'OPTIONS') reply.send();
   });
 
@@ -129,6 +130,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   registerConfigRoutes(app, db);
   registerBandwidthRoutes(app, db);
   registerStandupRoutes(app, db, jiraClient, config);
+  registerStandupAudioRoutes(app, db);
   // Gantt Planner placement endpoints (project plan §6a).
   registerPlanningRoutes(app, db);
   // Jira sync: re-import + reconcile (project plan §7).

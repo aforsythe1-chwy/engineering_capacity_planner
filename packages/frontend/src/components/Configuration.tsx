@@ -9,6 +9,7 @@ import { SyncLog } from './SyncLog';
 import { DatabaseTools } from './DatabaseTools';
 import { EpicManagementSection } from './EpicManagementSection';
 import { StandupStatusConfiguration } from './StandupStatusConfiguration';
+import { StandupAudioConfiguration } from './StandupAudioConfiguration';
 import type { RuntimeDataSource } from '../data/loadDataset';
 
 interface ConfigurationProps {
@@ -106,6 +107,7 @@ export function Configuration({ dataset, teamId, onFilter, editable, dataSource,
       />
       <StandupStatusConfiguration dataset={dataset} disabled={disabled} editable={editable} run={run} />
       <StandupConfiguration dataset={dataset} teamId={teamId} disabled={disabled} run={run} />
+      <StandupAudioConfiguration dataset={dataset} teamId={teamId} disabled={disabled} />
       <SyncLog
         editable={editable}
         refreshKey={globalStringSetting(dataset.settings, SETTING_KEYS.LAST_SYNCED_AT)}

@@ -17,6 +17,8 @@ import type {
   TeamMember,
   VelocityOverride,
   StandupNoteMention,
+  StandupAudioTrackSummary,
+  TeamStandupAudioSettings,
 } from '@ecp/shared';
 
 export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
@@ -63,6 +65,18 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   return data as T;
 }
+
+export const listStandupAudioTracks = (): Promise<StandupAudioTrackSummary[]> => request('GET', '/api/standup/audio-tracks');
+export const getTeamStandupAudio = (teamId: string): Promise<TeamStandupAudioSettings> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/standup-audio`);
+export const saveTeamStandupAudio = (teamId: string, value: Omit<TeamStandupAudioSettings, 'teamId'>): Promise<TeamStandupAudioSettings> => request('PUT', `/api/teams/${encodeURIComponent(teamId)}/standup-audio`, value);
+export const deleteStandupAudioTrack = (trackId: string): Promise<void> => request('DELETE', `/api/standup/audio-tracks/${encodeURIComponent(trackId)}`);
+export async function uploadStandupAudioTrack(file: File, displayName: string): Promise<StandupAudioTrackSummary> {
+  const res = await fetch(`${API_BASE}/api/standup/audio-tracks`, { method: 'POST', headers: { 'Content-Type': 'audio/mpeg', 'X-ECP-Track-Name': encodeURIComponent(displayName), 'X-ECP-Track-Filename': encodeURIComponent(file.name) }, body: file });
+  const text = await res.text(); const data = text ? JSON.parse(text) : undefined;
+  if (!res.ok) throw new Error(data?.error ?? `Upload failed (${res.status})`);
+  return data as StandupAudioTrackSummary;
+}
+export const standupAudioContentUrl = (trackId: string): string => `${API_BASE}/api/standup/audio-tracks/${encodeURIComponent(trackId)}/content`;
 
 // --- Settings knobs (+ Jira mapping) ---------------------------------------
 export const patchSettings = (patch: Record<string, unknown>): Promise<unknown> =>

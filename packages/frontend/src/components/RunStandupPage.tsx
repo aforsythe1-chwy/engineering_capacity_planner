@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Users } from 'lucide-react';
-import { effectivePortfolioEpic, epicOwnerId, epicSmes, globalStringSetting, SETTING_KEYS, STANDUP_DEFAULTS, type BandwidthCheckIn, type BandwidthFeeling, type DomainDataset, type StandupMemberTicketContext, type StandupParticipant } from '@ecp/shared';
+import { effectivePortfolioEpic, epicOwnerId, epicSmes, globalStringSetting, SETTING_KEYS, STANDUP_DEFAULTS, type BandwidthCheckIn, type BandwidthFeeling, type DomainDataset, type StandupMemberTicketContext, type StandupParticipant, type TeamStandupAudioSettings } from '@ecp/shared';
 import * as api from '../data/api';
 import { boardPresentation, groupStandupTickets, parsePresentation, standupTicketGroupTone } from '../lib/standupStatusPresentation';
 import { deriveStandupRequiredPeople } from '../lib/standupRequiredPeople';
@@ -9,6 +9,7 @@ import { StandupSpeakerTimer } from './StandupSpeakerTimer';
 import { StandupFireEffect } from './StandupFireEffect';
 import { StandupNoteComposer } from './StandupNoteComposer';
 import { MemberAvatar } from './MemberAvatar';
+import { useStandupWalkOffAudio } from '../lib/useStandupWalkOffAudio';
 
 const feelings: Array<{ value: BandwidthFeeling; label: string; description: string }> = [
   { value: 'purple', label: 'Purple', description: "I don't have enough work to do" },
@@ -35,10 +36,13 @@ function StandupModal({ dataset, aggregate, onChange, onClose, onError }: { data
   useEffect(() => { const previousOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = previousOverflow; }; }, []);
   const [ticketStates, setTicketStates] = useState<Record<string, { context: StandupMemberTicketContext | null; refreshing: boolean }>>({});
   const [timerState, setTimerState] = useState({ overTime: false, paused: false, heat: 0 });
+  const [audioSettings, setAudioSettings] = useState<TeamStandupAudioSettings | null>(null);
   const handleOvertimeChange = useCallback((overTime: boolean, paused: boolean, heat: number) => setTimerState((current) => current.overTime === overTime && current.paused === paused && current.heat === heat ? current : { overTime, paused, heat }), []);
   const snapshotRequests = useRef(new Map<string, Promise<StandupMemberTicketContext | null>>()); const refreshRequests = useRef(new Map<string, Promise<StandupMemberTicketContext>>());
   const current = aggregate.participants.find((p) => p.disposition === 'pending'); const pending = aggregate.participants.filter((p) => p.disposition === 'pending'); const done = aggregate.participants.filter((p) => p.disposition !== 'pending').length;
   const currentMemberId = pending[0]?.memberId; const nextMemberId = pending[1]?.memberId;
+  useEffect(() => { void api.getTeamStandupAudio(aggregate.session.teamId).then(setAudioSettings).catch(() => setAudioSettings(null)); }, [aggregate.session.teamId]);
+  useStandupWalkOffAudio({ settings: audioSettings, memberId: currentMemberId, heat: timerState.heat, paused: timerState.paused, active: aggregate.session.status === 'active' });
   const [canAdvance, setCanAdvance] = useState(() => Boolean(currentMemberId && aggregate.checkIns.some((entry) => entry.memberId === currentMemberId)));
   useEffect(() => { setCanAdvance(Boolean(currentMemberId && aggregate.checkIns.some((entry) => entry.memberId === currentMemberId))); }, [aggregate.checkIns, currentMemberId]);
   useEffect(() => {
