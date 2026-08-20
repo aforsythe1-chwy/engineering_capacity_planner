@@ -2912,14 +2912,16 @@ button.tab:hover:not(.active) {
 @media (max-width: 700px) { .standup-backdrop { padding: 0; }.standup-modal { width: 100vw; height: 100vh; max-height: none; border-radius: 0; }.standup-grid { grid-template-columns: 1fr; }.standup-grid aside { padding: 0 0 16px; border-right: 0; border-bottom: 1px solid var(--border); }.standup-bandwidth-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }.standup-ticket { grid-template-columns: 1fr; gap: 2px; }.standup-ticket-summary { -webkit-line-clamp: unset; }.standup-ticket-heading { align-items: baseline; } }
 .bandwidth-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
 .bandwidth-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }.bandwidth-day-placeholder { min-height: 84px; }
-.bandwidth-day { min-height: 84px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; text-align: left; color: var(--text); background: var(--panel); cursor: pointer; }
+.bandwidth-day { min-height: 84px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; text-align: left; color: var(--text); background: var(--panel); font: inherit; cursor: pointer; }
 .bandwidth-day span, .bandwidth-day small { display: block; }
 .bandwidth-day small { margin-top: 7px; font-size: 10px; white-space: nowrap; color: var(--muted); }
+.bandwidth-day:hover:not(.is-unavailable) { border-color: color-mix(in srgb, var(--accent) 62%, var(--border)); background: color-mix(in srgb, var(--panel) 92%, var(--accent)); }
+.bandwidth-day:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--accent); outline-offset: 2px; }
+.bandwidth-day.is-unavailable { cursor: default; opacity: .58; }
 .bandwidth-mode-toggle { margin-bottom: 0; }
 .bandwidth-mode-toggle .segment { display: grid; width: 46px; min-height: 38px; flex: none; place-items: center; padding: 7px 10px; }
 .bandwidth-mode-icon { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .bandwidth-mode-icon .axis { opacity: .6; }
-.bandwidth-day.count-mode { cursor: default; }
 .bandwidth-count-bars { display: grid; gap: 4px; margin-top: 7px; }
 .bandwidth-count-row { min-width: 0; }
 .bandwidth-count-track { position: relative; height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--border) 72%, transparent); }
@@ -2929,6 +2931,31 @@ button.tab:hover:not(.active) {
 .bandwidth-count-track:hover .bandwidth-count-tooltip, .bandwidth-count-track:focus-visible .bandwidth-count-tooltip { opacity: 1; transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) { .bandwidth-count-fill, .bandwidth-count-tooltip { transition: none; } }
 @media (max-width: 700px) { .bandwidth-calendar, .bandwidth-weekdays { grid-template-columns: repeat(7, minmax(68px, 1fr)); overflow-x: auto; } .bandwidth-entry { align-items: flex-start; } }
+
+.modal.bandwidth-day-editor { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(880px, calc(100vw - 40px)); max-width: 880px; min-width: 0; max-height: min(760px, calc(100vh - 32px)); }
+.bandwidth-day-loading, .bandwidth-day-members { min-height: 0; overflow: auto; }
+.bandwidth-day-loading { margin: 16px 0; }
+.bandwidth-day-coverage { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.bandwidth-day-members { display: grid; gap: 7px; padding-right: 2px; }
+.bandwidth-member-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+.bandwidth-member-heading { display: flex; align-items: center; min-width: 0; gap: 7px; }
+.bandwidth-member-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.bandwidth-inactive-badge { padding: 2px 5px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.bandwidth-feeling-options { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.bandwidth-feeling-option { position: relative; display: grid; min-height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.bandwidth-feeling-option input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.bandwidth-feeling-option:hover { border-color: color-mix(in srgb, var(--accent) 52%, var(--border)); color: var(--text); }
+.bandwidth-feeling-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.bandwidth-feeling-option.is-selected { color: var(--text); border-color: currentColor; background: color-mix(in srgb, currentColor 14%, var(--panel-2)); }
+.bandwidth-feeling-option.feeling-red.is-selected { color: var(--red); }.bandwidth-feeling-option.feeling-yellow.is-selected { color: var(--yellow); }.bandwidth-feeling-option.feeling-green.is-selected { color: var(--green); }.bandwidth-feeling-option.feeling-purple.is-selected { color: #c4a1ff; }
+.bandwidth-feeling-option:has(input:disabled) { cursor: default; opacity: .72; }
+.bandwidth-member-actions { display: flex; grid-column: 2; grid-row: 1; justify-content: flex-end; gap: 8px; white-space: nowrap; }
+.bandwidth-member-note { grid-column: 1 / -1; margin: 0; }
+.bandwidth-member-note textarea { min-height: 58px; resize: vertical; }
+.bandwidth-inactive-members { display: grid; gap: 7px; margin-top: 2px; }
+.bandwidth-inactive-members summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+@media (max-width: 700px) { .bandwidth-day-editor { width: 100vw; height: 100vh; max-height: none; border-radius: 0; }.bandwidth-feeling-options { min-height: 44px; } }
+@media (max-width: 520px) { .bandwidth-member-row { grid-template-columns: 1fr; }.bandwidth-member-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }.bandwidth-member-note { grid-column: 1; } }
 
 /* --- Increment Planner prototype --- */
 .increment-planner { margin-top: 18px; }

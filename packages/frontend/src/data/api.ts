@@ -4,6 +4,8 @@ import type {
   EpicMilestone,
   GlobalImportantDate,
   BandwidthCheckIn,
+  BandwidthDay,
+  BandwidthDayPatch,
   StandupNote,
   StandupParticipant,
   StandupMemberTicketContext,
@@ -393,6 +395,12 @@ export const deleteVelocityOverride = (id: string): Promise<void> =>
 // --- Daily bandwidth check-ins --------------------------------------------
 export const listBandwidthCheckIns = (teamId: string, from: string, to: string): Promise<{ checkIns: BandwidthCheckIn[] }> =>
   request('GET', `/api/bandwidth-check-ins${qs({ teamId, from, to })}`);
+
+export const getBandwidthDay = (teamId: string, date: string): Promise<BandwidthDay> =>
+  request('GET', `/api/teams/${encodeURIComponent(teamId)}/bandwidth-check-ins/${encodeURIComponent(date)}`);
+
+export const patchBandwidthDay = (teamId: string, date: string, patch: BandwidthDayPatch): Promise<BandwidthDay> =>
+  request('PATCH', `/api/teams/${encodeURIComponent(teamId)}/bandwidth-check-ins/${encodeURIComponent(date)}`, patch);
 
 export const upsertBandwidthCheckIn = (
   memberId: string,

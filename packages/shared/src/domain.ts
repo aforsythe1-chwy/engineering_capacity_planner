@@ -80,6 +80,31 @@ export interface BandwidthCheckIn {
   updatedAt: string;
 }
 
+/** The Standup session that owns all check-ins for a team calendar day. */
+export interface BandwidthDayStandupSource {
+  sessionId: string;
+  status: StandupStatus;
+  committedAt?: string | null;
+}
+
+/** Complete bandwidth state for one team calendar day. */
+export interface BandwidthDay {
+  teamId: string;
+  date: IsoDate;
+  checkIns: BandwidthCheckIn[];
+  standup: BandwidthDayStandupSource | null;
+}
+
+/** Minimal, atomic edits to the manual check-ins for one team calendar day. */
+export interface BandwidthDayPatch {
+  upserts: Array<{
+    memberId: string;
+    feeling: BandwidthFeeling;
+    note?: string | null;
+  }>;
+  deleteMemberIds: string[];
+}
+
 /**
  * A time-boxed adjustment to a member's velocity (ramping hire, reduced week).
  * Expressed as a multiplier against {@link TeamMember.baseVelocity}.

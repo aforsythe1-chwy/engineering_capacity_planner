@@ -1,11 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { BandwidthCheckIn, BandwidthFeeling, DomainDataset } from '@ecp/shared';
+import type { BandwidthCheckIn, BandwidthDay, BandwidthFeeling, DomainDataset } from '@ecp/shared';
 import * as api from '../data/api';
 import { buildAvailabilityEntries, type AvailabilityEntry, type AvailabilityKind } from '../lib/availability';
 import { memberColorMap } from '../lib/memberColors';
 import { AvailabilityCalendar } from './AvailabilityCalendar';
 import { AvailabilityList } from './AvailabilityList';
 import { AddAvailabilityModal, type NewAvailability } from './AddAvailabilityModal';
+import { BandwidthDayEditor } from './BandwidthDayEditor';
 
 type TeamView = 'bandwidth' | 'availability';
 const feelings: Array<{ value: BandwidthFeeling; label: string; description: string }> = [
@@ -52,6 +53,8 @@ export function TeamPage({ dataset, teamId, editable, onReload, onTeamChange }: 
   const [error, setError] = useState<string | null>(null);
   const [availabilityView, setAvailabilityView] = useState<'calendar' | 'list'>('calendar');
   const [addingAvailability, setAddingAvailability] = useState(false);
+  const [selectedBandwidthDate, setSelectedBandwidthDate] = useState<string | null>(null);
+  const bandwidthTriggerRef = useRef<HTMLButtonElement | null>(null);
   const team = dataset.teams.find((candidate) => candidate.id === teamId) ?? dataset.teams[0] ?? null;
   const members = useMemo(() => team ? dataset.members.filter((member) => member.teamId === team.id) : [], [dataset.members, team]);
   const activeMembers = useMemo(() => members.filter((member) => member.active), [members]);
@@ -81,6 +84,15 @@ export function TeamPage({ dataset, teamId, editable, onReload, onTeamChange }: 
     else await api.createVelocityOverride({ ...input, multiplier: input.multiplier ?? 1 });
     await onReload();
   };
+  const closeBandwidthEditor = () => {
+    setSelectedBandwidthDate(null);
+    requestAnimationFrame(() => bandwidthTriggerRef.current?.focus());
+  };
+  const saveBandwidthDay = (day: BandwidthDay) => {
+    setCheckIns((items) => [...items.filter((item) => item.date !== day.date), ...day.checkIns]);
+  };
+
+  useEffect(() => { setSelectedBandwidthDate(null); }, [month, team?.id]);
 
   if (!team) return <main className="team-page"><section className="panel">No team is configured yet.</section></main>;
   return <main className="team-page" data-testid="team-page">
@@ -96,7 +108,9 @@ export function TeamPage({ dataset, teamId, editable, onReload, onTeamChange }: 
     </section>
     {error && <div className="panel config-error" role="alert">⚠ {error}</div>}
     {view === 'bandwidth'
-      ? <BandwidthView checkIns={visibleCheckIns} month={month} setMonth={setMonth} loading={loading} />
+      ? <><BandwidthView checkIns={visibleCheckIns} month={month} setMonth={setMonth} loading={loading} onSelectDate={(date, trigger) => { bandwidthTriggerRef.current = trigger; setSelectedBandwidthDate(date); }} />
+        {selectedBandwidthDate && <BandwidthDayEditor teamId={team.id} date={selectedBandwidthDate} members={members} editable={editable} initialCheckIns={checkIns.filter((entry) => entry.date === selectedBandwidthDate)} colors={colors} onClose={closeBandwidthEditor} onSaved={saveBandwidthDay} />}
+      </>
       : <section className="panel"><div className="section-title"><div><h2>Availability — {monthLabel(month)}</h2><span className="hint">PTO, on-call, and velocity overrides</span></div><div className="section-actions"><button type="button" className="btn" onClick={() => setMonth(addMonths(month, -1))}>Previous</button><button type="button" className="btn" onClick={() => setMonth(monthOf(localToday()))}>Today</button><button type="button" className="btn" onClick={() => setMonth(addMonths(month, 1))}>Next</button><button type="button" className="btn primary" data-testid="avail-add" disabled={!editable} onClick={() => setAddingAvailability(true)}>＋ Add</button></div></div><div className="subtabs" role="tablist" aria-label="Availability presentation"><button className={`subtab${availabilityView === 'calendar' ? ' active' : ''}`} type="button" data-testid="avail-view-calendar" onClick={() => setAvailabilityView('calendar')}>Calendar</button><button className={`subtab${availabilityView === 'list' ? ' active' : ''}`} type="button" data-testid="avail-view-list" onClick={() => setAvailabilityView('list')}>List</button></div>{availabilityView === 'calendar' ? <AvailabilityCalendar entries={availabilityEntries} disabled={!editable} onDelete={deleteAvailability} /> : <AvailabilityList entries={availabilityEntries} disabled={!editable} onDelete={deleteAvailability} />}{addingAvailability && <AddAvailabilityModal members={activeMembers} onClose={() => setAddingAvailability(false)} onAdd={addAvailability} />}</section>}
   </main>;
 }
@@ -141,7 +155,7 @@ function TeamMemberPicker({ members, value, onChange }: { members: DomainDataset
   </div>;
 }
 
-function BandwidthView({ checkIns, month, setMonth, loading }: { checkIns: BandwidthCheckIn[]; month: string; setMonth: (month: string) => void; loading: boolean }) {
+function BandwidthView({ checkIns, month, setMonth, loading, onSelectDate }: { checkIns: BandwidthCheckIn[]; month: string; setMonth: (month: string) => void; loading: boolean; onSelectDate: (date: string, trigger: HTMLButtonElement) => void }) {
   const [calendarMode, setCalendarMode] = useState<'average' | 'count'>('average');
   const days = monthDays(month);
   const leadingDays = new Date(`${month}T12:00:00`).getDay();
@@ -151,7 +165,7 @@ function BandwidthView({ checkIns, month, setMonth, loading }: { checkIns: Bandw
   return <>
     <section className="panel">
       <div className="section-title">
-        <div><h2>Bandwidth — {monthLabel(month)}</h2><span className="hint">Calendar analysis only. Use Standup to collect daily check-ins.</span></div>
+        <div><h2>Bandwidth — {monthLabel(month)}</h2><span className="hint">Click a past date to add or correct manual check-ins. Use Standup for today.</span></div>
         <div className="section-actions"><button type="button" className="btn" onClick={() => setMonth(addMonths(month, -1))}>Previous</button><button type="button" className="btn" onClick={() => setMonth(monthOf(localToday()))}>Today</button><button type="button" className="btn" onClick={() => setMonth(addMonths(month, 1))}>Next</button></div>
       </div>
       <div className="section-title">
@@ -168,14 +182,17 @@ function BandwidthView({ checkIns, month, setMonth, loading }: { checkIns: Bandw
         const score = entries.length ? entries.reduce((sum, entry) => sum + ({ purple: -1, green: 0, yellow: 1, red: 2 }[entry.feeling]), 0) / entries.length : null;
         const averageColor: BandwidthFeeling | null = score === null ? null : score < -0.5 ? 'purple' : score < 0.5 ? 'green' : score < 1.5 ? 'yellow' : 'red';
         const color = calendarMode === 'average' ? averageColor : null;
-        return <div key={date} className={`bandwidth-day${calendarMode === 'count' ? ' count-mode' : ''}${color ? ` feeling-${color}` : ''}`} aria-label={`${date}: ${entries.length} reports${averageColor ? `; average signal ${averageColor}` : ''}`}>
-          <span>{Number(date.slice(-2))}</span>
-          {entries.length
-            ? calendarMode === 'count'
-              ? <BandwidthCountBars date={date} counts={counts} maxCount={maxFeelingCount} />
-              : <small>{counts.red}R {counts.yellow}Y {counts.green}G {counts.purple}P</small>
-            : <small>—</small>}
-        </div>;
+        const today = localToday();
+        const summary = `${date}: ${entries.length} report${entries.length === 1 ? '' : 's'}${averageColor ? `; average signal ${averageColor}` : ''}`;
+        const content = <><span>{Number(date.slice(-2))}</span>{entries.length
+          ? calendarMode === 'count'
+            ? <BandwidthCountBars date={date} counts={counts} maxCount={maxFeelingCount} />
+            : <small>{counts.red}R {counts.yellow}Y {counts.green}G {counts.purple}P</small>
+          : <small>—</small>}</>;
+        const className = `bandwidth-day${calendarMode === 'count' ? ' count-mode' : ''}${color ? ` feeling-${color}` : ''}`;
+        if (date > today) return <div key={date} className={`${className} is-unavailable`} aria-label={`${summary}; future date unavailable`}>{content}</div>;
+        const action = date < today ? 'Open historical check-ins' : "View today's check-ins; use Standup to edit";
+        return <button key={date} type="button" className={className} aria-label={`${summary}; ${action}`} title={action} onClick={(event) => onSelectDate(date, event.currentTarget)}>{content}</button>;
       })}</div>
     </section>
   </>;
@@ -193,7 +210,7 @@ function BandwidthCountBars({ date, counts, maxCount }: { date: string; counts: 
     const label = `${count} ${value} report${count === 1 ? '' : 's'}`;
     const tooltipId = `bandwidth-count-${date}-${value}`;
     return <div className="bandwidth-count-row" key={value}>
-      <div className="bandwidth-count-track" tabIndex={0} aria-label={`${date}: ${label}`} aria-describedby={tooltipId}>
+      <div className="bandwidth-count-track" aria-label={`${date}: ${label}`}>
         <span className={`bandwidth-count-fill feeling-${value}`} style={{ width: `${count / maxCount * 100}%` }} aria-hidden="true" />
         <span id={tooltipId} className="bandwidth-count-tooltip" role="tooltip">{label}</span>
       </div>

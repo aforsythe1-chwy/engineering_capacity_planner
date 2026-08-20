@@ -192,6 +192,75 @@ describe('Bandwidth check-in API', () => {
     const removeMember = await app.inject({ method: 'DELETE', url: `/api/members/${memberId}` });
     expect(removeMember.statusCode).toBe(409);
   });
+
+  it('reads and atomically patches a manual bandwidth day without replacing omitted members', async () => {
+    app = await buildServer({ dbPath: ':memory:' });
+    const dataset = (await app.inject({ method: 'GET', url: '/api/dataset' })).json();
+    const members = dataset.members.filter((member: any) => member.teamId === 'team-platform');
+    const [first, second] = members;
+    const date = '2026-08-13';
+
+    const saved = await app.inject({
+      method: 'PATCH', url: `/api/teams/team-platform/bandwidth-check-ins/${date}`,
+      payload: { upserts: [
+        { memberId: first.id, feeling: 'yellow', note: 'Interrupt load' },
+        { memberId: second.id, feeling: 'purple' },
+      ], deleteMemberIds: [] },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ teamId: 'team-platform', date, standup: null });
+    expect(saved.json().checkIns).toMatchObject([
+      { memberId: first.id, feeling: 'yellow', note: 'Interrupt load', sessionId: null },
+      { memberId: second.id, feeling: 'purple', sessionId: null },
+    ]);
+
+    const changed = await app.inject({
+      method: 'PATCH', url: `/api/teams/team-platform/bandwidth-check-ins/${date}`,
+      payload: { upserts: [{ memberId: first.id, feeling: 'red' }], deleteMemberIds: [] },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().checkIns).toMatchObject([
+      { memberId: first.id, feeling: 'red', note: null },
+      { memberId: second.id, feeling: 'purple' },
+    ]);
+
+    const rejected = await app.inject({
+      method: 'PATCH', url: `/api/teams/team-platform/bandwidth-check-ins/2026-08-14`,
+      payload: { upserts: [{ memberId: first.id, feeling: 'green' }], deleteMemberIds: ['missing-member'] },
+    });
+    expect(rejected.statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/teams/team-platform/bandwidth-check-ins/2026-08-14' })).json().checkIns).toEqual([]);
+
+    const cleared = await app.inject({
+      method: 'PATCH', url: `/api/teams/team-platform/bandwidth-check-ins/${date}`,
+      payload: { upserts: [], deleteMemberIds: [first.id] },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().checkIns).toMatchObject([{ memberId: second.id, feeling: 'purple' }]);
+  });
+
+  it('keeps Standup-owned bandwidth history read-only from generic and day APIs', async () => {
+    app = await buildServer({ dbPath: ':memory:' });
+    const dataset = (await app.inject({ method: 'GET', url: '/api/dataset' })).json();
+    const member = dataset.members.find((entry: any) => entry.active);
+    const date = '2026-08-19';
+    const started = await app.inject({ method: 'POST', url: '/api/standups/start', payload: { teamId: member.teamId, date } });
+    const sessionId = started.json().session.id;
+    expect((await app.inject({ method: 'PUT', url: `/api/standups/${sessionId}/check-ins/${member.id}`, payload: { feeling: 'green' } })).statusCode).toBe(200);
+
+    const day = await app.inject({ method: 'GET', url: `/api/teams/${member.teamId}/bandwidth-check-ins/${date}` });
+    expect(day.statusCode).toBe(200);
+    expect(day.json()).toMatchObject({ standup: { sessionId, status: 'active' }, checkIns: [{ memberId: member.id, sessionId }] });
+
+    const genericEdit = await app.inject({ method: 'PUT', url: `/api/bandwidth-check-ins/${member.id}/${date}`, payload: { feeling: 'red' } });
+    expect(genericEdit.statusCode).toBe(200);
+    expect(genericEdit.json()).toMatchObject({ feeling: 'red', sessionId });
+    expect((await app.inject({ method: 'DELETE', url: `/api/bandwidth-check-ins/${member.id}/${date}` })).statusCode).toBe(409);
+    expect((await app.inject({
+      method: 'PATCH', url: `/api/teams/${member.teamId}/bandwidth-check-ins/${date}`,
+      payload: { upserts: [{ memberId: member.id, feeling: 'yellow' }], deleteMemberIds: [] },
+    })).statusCode).toBe(409);
+  });
 });
 
 describe('Database snapshot + import API', () => {
