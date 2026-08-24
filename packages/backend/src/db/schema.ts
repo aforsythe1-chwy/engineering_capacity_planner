@@ -236,6 +236,8 @@ CREATE TABLE IF NOT EXISTS standup_note (
   completed_at TEXT,
   deferred_at TEXT,
   source_note_id TEXT REFERENCES standup_note(id) ON DELETE SET NULL,
+  context_member_id TEXT REFERENCES team_member(id) ON DELETE RESTRICT,
+  context_member_name TEXT,
   UNIQUE(session_id, position)
 );
 

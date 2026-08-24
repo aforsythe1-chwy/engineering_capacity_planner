@@ -413,6 +413,10 @@ export interface StandupNote {
   deferredAt: string | null;
   sourceNoteId: string | null;
   sourceSessionDate: IsoDate | null;
+  /** Participant who was active when this note was originally created. */
+  contextMemberId: string | null;
+  /** Snapshot name for the participant context, retained across renames/deactivation. */
+  contextMemberName: string | null;
   mentions: StandupNoteMention[];
 }
 export type StandupNoteState = 'open' | 'completed' | 'deferred';

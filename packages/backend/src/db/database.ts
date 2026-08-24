@@ -63,6 +63,10 @@ function migrate(db: Db): void {
   // SQLite cannot reliably add a self-referencing FK to older tables. Repository
   // validation and the fresh-schema FK protect the relationship.
   ensureColumn(db, 'standup_note', 'source_note_id', 'TEXT');
+  // The active participant is durable note context. Older notes intentionally
+  // remain null because their original participant cannot be inferred safely.
+  ensureColumn(db, 'standup_note', 'context_member_id', 'TEXT');
+  ensureColumn(db, 'standup_note', 'context_member_name', 'TEXT');
   ensureColumn(db, 'global_important_date', 'notes', 'TEXT');
   ensureColumn(db, 'global_important_date', 'link_url', 'TEXT');
   // Older SQLite tables cannot gain this CHECK constraint additively. The
