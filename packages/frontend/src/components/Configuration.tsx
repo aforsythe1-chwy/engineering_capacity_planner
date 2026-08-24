@@ -9,7 +9,7 @@ import { SyncLog } from './SyncLog';
 import { DatabaseTools } from './DatabaseTools';
 import { EpicManagementSection } from './EpicManagementSection';
 import { StandupStatusConfiguration } from './StandupStatusConfiguration';
-import { StandupAudioConfiguration } from './StandupAudioConfiguration';
+import { MemberSongControl, StandupAudioConfiguration, useTeamStandupAudio, type TeamStandupAudioController } from './StandupAudioConfiguration';
 import type { RuntimeDataSource } from '../data/loadDataset';
 
 interface ConfigurationProps {
@@ -69,6 +69,7 @@ export function Configuration({ dataset, teamId, onFilter, editable, dataSource,
   const team = teamId ? (dataset.teams.find((t) => t.id === teamId) ?? null) : null;
   const members = teamId ? dataset.members.filter((m) => m.teamId === teamId) : [];
   const colors = useMemo(() => memberColorMap(members), [members]);
+  const audio = useTeamStandupAudio(teamId);
 
   return (
     <div data-testid="configuration">
@@ -84,35 +85,41 @@ export function Configuration({ dataset, teamId, onFilter, editable, dataSource,
         </div>
       )}
 
-      <EpicManagementSection dataset={dataset} editable={editable} onFilter={onFilter} onReload={onReload} />
-      <KnobsSection dataset={dataset} disabled={disabled} run={run} />
-      {team ? <CadenceSection team={team} disabled={disabled} run={run} /> : null}
-      {teamId ? (
-        <>
-          <MembersSection members={members} colors={colors} teamId={teamId} disabled={disabled} run={run} />
-          <section className="panel" data-testid="team-availability-link">
-            <div className="section-title"><div><h2>Availability</h2><span className="hint">PTO, on-call, and velocity overrides are managed in the Team workspace.</span></div></div>
-            <a className="btn" href="?tab=team">Open Team availability</a>
-          </section>
-        </>
+      <ConfigurationGroup title="Portfolio planning">
+        <EpicManagementSection dataset={dataset} editable={editable} onFilter={onFilter} onReload={onReload} />
+        <KnobsSection dataset={dataset} disabled={disabled} run={run} />
+      </ConfigurationGroup>
+      {team && teamId ? (
+        <ConfigurationGroup title="Team">
+          <TeamConfigurationSection team={team} members={members} colors={colors} teamId={teamId} disabled={disabled} run={run} audio={audio} />
+        </ConfigurationGroup>
       ) : null}
-      <JiraSetupWizard
-        dataset={dataset}
-        teamId={teamId}
-        members={members}
-        disabled={disabled}
-        dataSource={dataSource}
-        run={run}
-        onReload={onReload}
-      />
-      <StandupStatusConfiguration dataset={dataset} disabled={disabled} editable={editable} run={run} />
-      <StandupConfiguration dataset={dataset} teamId={teamId} disabled={disabled} run={run} />
-      <StandupAudioConfiguration dataset={dataset} teamId={teamId} disabled={disabled} />
-      <SyncLog
-        editable={editable}
-        refreshKey={globalStringSetting(dataset.settings, SETTING_KEYS.LAST_SYNCED_AT)}
-      />
-      <DatabaseTools editable={editable} onReload={onReload} />
+      <ConfigurationGroup title="Standup">
+        <section className="panel standup-configuration" data-testid="standup-configuration">
+          <div className="section-title"><div><h2>Standup setup</h2><span className="hint">Facilitation cues, ticket presentation, and optional walk-off audio.</span></div></div>
+          <StandupConfiguration dataset={dataset} teamId={teamId} disabled={disabled} run={run} />
+          <StandupStatusConfiguration dataset={dataset} disabled={disabled} editable={editable} run={run} embedded />
+          <StandupAudioConfiguration audio={audio} disabled={disabled} embedded />
+        </section>
+      </ConfigurationGroup>
+      <ConfigurationGroup title="Jira and sync">
+        <JiraSetupWizard
+          dataset={dataset}
+          teamId={teamId}
+          members={members}
+          disabled={disabled}
+          dataSource={dataSource}
+          run={run}
+          onReload={onReload}
+        />
+        <SyncLog
+          editable={editable}
+          refreshKey={globalStringSetting(dataset.settings, SETTING_KEYS.LAST_SYNCED_AT)}
+        />
+      </ConfigurationGroup>
+      <ConfigurationGroup title="Data maintenance">
+        <DatabaseTools editable={editable} onReload={onReload} />
+      </ConfigurationGroup>
     </div>
   );
 }
@@ -121,7 +128,7 @@ function StandupConfiguration({ dataset, teamId, disabled, run }: { dataset: Dom
   const [threshold, setThreshold] = useState(String(settingValue(dataset, SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS, STANDUP_DEFAULTS.SPEAKER_THRESHOLD_SECONDS)));
   const [groupsText, setGroupsText] = useState(() => { if (!teamId) return '[]'; const row = dataset.settings.find((s) => s.scope === 'team' && s.scopeId === teamId && s.key === SETTING_KEYS.STANDUP_PSEUDOGROUPS); try { return JSON.stringify(row ? JSON.parse(row.value).groups : [], null, 2); } catch { return '[]'; } });
   useEffect(() => { setThreshold(String(settingValue(dataset, SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS, STANDUP_DEFAULTS.SPEAKER_THRESHOLD_SECONDS))); }, [dataset]);
-  return <section className="panel standup-settings"><SectionTitle title="Standup settings" hint="The overtime cue is a facilitation aid; speaker time is never saved or reported." /><label className="control"><span>Speaker overtime threshold (seconds)</span><input type="number" min={5} max={600} value={threshold} disabled={disabled} onChange={(event) => setThreshold(event.target.value)} /><small>Default: 20 seconds. The modal adds an escalating pixel-fire cue at this threshold.</small></label><div className="controls"><button type="button" className="btn primary" disabled={disabled} onClick={() => run(() => api.patchSettings({ [SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS]: Number(threshold) }))}>Save threshold</button></div>{teamId ? <><label className="control"><span>Team pseudogroups</span><textarea value={groupsText} disabled={disabled} onChange={(event) => setGroupsText(event.target.value)} aria-label="Team pseudogroups JSON" /><small>Enter an ordered JSON list of groups with stable id, name, and memberIds. @All Team is always available and cannot be edited.</small></label><div className="controls"><button type="button" className="btn" disabled={disabled} onClick={() => run(() => api.patchTeamSettings(teamId, { [SETTING_KEYS.STANDUP_PSEUDOGROUPS]: { version: 1, groups: JSON.parse(groupsText) } }))}>Save groups</button></div></> : null}</section>;
+  return <section className="config-subsection standup-settings"><SectionTitle level={3} title="Facilitation settings" hint="The overtime cue is a facilitation aid; speaker time is never saved or reported." /><label className="control"><span>Speaker overtime threshold (seconds)</span><input type="number" min={5} max={600} value={threshold} disabled={disabled} onChange={(event) => setThreshold(event.target.value)} /><small>Default: 20 seconds. The modal adds an escalating pixel-fire cue at this threshold.</small></label><div className="controls"><button type="button" className="btn primary" disabled={disabled} onClick={() => run(() => api.patchSettings({ [SETTING_KEYS.STANDUP_SPEAKER_THRESHOLD_SECONDS]: Number(threshold) }))}>Save threshold</button></div>{teamId ? <><label className="control"><span>Team pseudogroups</span><textarea value={groupsText} disabled={disabled} onChange={(event) => setGroupsText(event.target.value)} aria-label="Team pseudogroups JSON" /><small>Enter an ordered JSON list of groups with stable id, name, and memberIds. @All Team is always available and cannot be edited.</small></label><div className="controls"><button type="button" className="btn" disabled={disabled} onClick={() => run(() => api.patchTeamSettings(teamId, { [SETTING_KEYS.STANDUP_PSEUDOGROUPS]: { version: 1, groups: JSON.parse(groupsText) } }))}>Save groups</button></div></> : null}</section>;
 }
 
 export function TrackedEpicsSection({ dataset, disabled, editable, run }: { dataset: DomainDataset; disabled: boolean; editable: boolean; run: (fn: () => Promise<unknown>) => Promise<void> }) {
@@ -307,6 +314,24 @@ export function EpicLabelSection({ dataset, epicKey, disabled, run }: {
 // ---------------------------------------------------------------------------
 // Team cadence
 // ---------------------------------------------------------------------------
+function TeamConfigurationSection({ team, members, colors, teamId, disabled, run, audio }: {
+  team: DomainDataset['teams'][number]; members: TeamMember[]; colors: Map<string, string>; teamId: string; disabled: boolean; run: Run; audio: TeamStandupAudioController;
+}) {
+  return (
+    <section className="panel team-configuration" data-testid="team-configuration">
+      <div className="section-title">
+        <div><h2>Team setup</h2><span className="hint">Cadence, capacity, and the people who share it.</span></div>
+      </div>
+      <CadenceSection team={team} disabled={disabled} run={run} />
+      <MembersSection members={members} colors={colors} teamId={teamId} disabled={disabled} run={run} audio={audio} />
+      <div className="team-availability-handoff" data-testid="team-availability-link">
+        <div><h3>Availability</h3><span className="hint">PTO, on-call, and velocity overrides are managed in the Team workspace.</span></div>
+        <a className="btn" href="?tab=team">Open Team availability</a>
+      </div>
+    </section>
+  );
+}
+
 function CadenceSection({ team, disabled, run }: { team: DomainDataset['teams'][number]; disabled: boolean; run: Run }) {
   const [name, setName] = useState(team.name);
   const [length, setLength] = useState(String(team.sprintLengthDays));
@@ -318,8 +343,8 @@ function CadenceSection({ team, disabled, run }: { team: DomainDataset['teams'][
     setWorkingDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)));
 
   return (
-    <section className="panel">
-      <SectionTitle title="Team cadence" hint={`${team.name} — sprint rhythm & working days.`} />
+    <section className="config-subsection">
+      <SectionTitle level={3} title="Team cadence" hint={`${team.name} — sprint rhythm & working days.`} />
       <div className="controls">
         <Field label="Team name">
           <input type="text" value={name} disabled={disabled} data-testid="cfg-team-name" onChange={(e) => setName(e.target.value)} />
@@ -364,18 +389,18 @@ function CadenceSection({ team, disabled, run }: { team: DomainDataset['teams'][
 // ---------------------------------------------------------------------------
 // Members
 // ---------------------------------------------------------------------------
-function MembersSection({ members, colors, teamId, disabled, run }: {
-  members: TeamMember[]; colors: Map<string, string>; teamId: string; disabled: boolean; run: Run;
+function MembersSection({ members, colors, teamId, disabled, run, audio }: {
+  members: TeamMember[]; colors: Map<string, string>; teamId: string; disabled: boolean; run: Run; audio: TeamStandupAudioController;
 }) {
   const [name, setName] = useState('');
   const [velocity, setVelocity] = useState('10');
 
   return (
-    <section className="panel">
-      <SectionTitle title="Team members" hint="Per-person velocity (points / sprint) and who's active." />
+    <section className="config-subsection">
+      <SectionTitle level={3} title="Team members" hint="Per-person velocity (points / sprint) and who's active." />
       <div className="config-list" data-testid="cfg-members">
         {members.map((m) => (
-          <MemberRow key={m.id} member={m} color={colors.get(m.id) ?? '#6b7280'} disabled={disabled} run={run} />
+          <MemberRow key={m.id} member={m} color={colors.get(m.id) ?? '#6b7280'} disabled={disabled} run={run} audio={audio} />
         ))}
       </div>
       <div className="controls config-add">
@@ -398,7 +423,7 @@ function MembersSection({ members, colors, teamId, disabled, run }: {
   );
 }
 
-function MemberRow({ member, color, disabled, run }: { member: TeamMember; color: string; disabled: boolean; run: Run }) {
+function MemberRow({ member, color, disabled, run, audio }: { member: TeamMember; color: string; disabled: boolean; run: Run; audio: TeamStandupAudioController }) {
   const [velocity, setVelocity] = useState(String(member.baseVelocity));
   const dirty = Number(velocity) !== member.baseVelocity;
   return (
@@ -413,6 +438,7 @@ function MemberRow({ member, color, disabled, run }: { member: TeamMember; color
       <input className="mini" type="number" min={0} value={velocity} disabled={disabled}
         onChange={(e) => setVelocity(e.target.value)} />
       <span className="unit">pts/sprint</span>
+      <MemberSongControl member={member} audio={audio} disabled={disabled} />
       <button type="button" className="link-btn" disabled={disabled || !dirty}
         onClick={() => run(() => api.updateMember(member.id, { baseVelocity: Number(velocity) }))}>
         save
@@ -428,10 +454,14 @@ function MemberRow({ member, color, disabled, run }: { member: TeamMember; color
 // ---------------------------------------------------------------------------
 // Small shared bits
 // ---------------------------------------------------------------------------
-function SectionTitle({ title, hint }: { title: string; hint: string }) {
+function ConfigurationGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="configuration-group" aria-label={title}><h2>{title}</h2>{children}</section>;
+}
+
+function SectionTitle({ title, hint, level = 2 }: { title: string; hint: string; level?: 2 | 3 }) {
   return (
     <div className="section-title">
-      <h2>{title}</h2>
+      {level === 3 ? <h3>{title}</h3> : <h2>{title}</h2>}
       <span className="hint">{hint}</span>
     </div>
   );
