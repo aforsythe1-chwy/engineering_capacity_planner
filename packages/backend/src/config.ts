@@ -36,6 +36,8 @@ export interface AppConfig {
   host: string;
   port: number;
   dbPath: string;
+  /** Use a disposable SQLite copy instead of writing to `dbPath` directly. */
+  testDb: boolean;
   /** `Access-Control-Allow-Origin` value; `*` by default for local dev. */
   corsOrigin: string;
   dataSource: DataSource;
@@ -72,6 +74,14 @@ function bool(v: string | undefined, def: boolean): boolean {
   return def;
 }
 
+/** Parse the data-safety switch strictly so a typo cannot enable persistence. */
+function strictBool(name: string, v: string | undefined, def: boolean): boolean {
+  if (v === undefined || v === '') return def;
+  if (/^(1|true|yes|on)$/i.test(v)) return true;
+  if (/^(0|false|no|off)$/i.test(v)) return false;
+  throw new Error(`Invalid ${name} "${v}" (expected one of 1/0, true/false, yes/no, or on/off)`);
+}
+
 function int(v: string | undefined, def: number): number {
   if (v === undefined || v === '') return def;
   const n = Number(v);
@@ -97,6 +107,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
     host: str(env.ECP_HOST, '127.0.0.1')!,
     port: int(env.ECP_PORT ?? env.PORT, 3001),
     dbPath: str(env.ECP_DB_PATH, './data/ecp.db')!,
+    testDb: strictBool('ECP_TEST_DB', env.ECP_TEST_DB, false),
     corsOrigin: str(env.ECP_CORS_ORIGIN, '*')!,
     dataSource: dataSource(env.ECP_DATA_SOURCE),
     seedIfEmpty: bool(env.ECP_SEED_IF_EMPTY, true),

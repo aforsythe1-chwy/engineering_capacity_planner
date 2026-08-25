@@ -59,6 +59,7 @@ An empty `.env` runs the app on synthetic data. Key knobs:
 | --- | --- | --- |
 | `ECP_HOST` / `ECP_PORT` | `127.0.0.1` / `3001` | API bind address |
 | `ECP_DB_PATH` | `./data/ecp.db` | SQLite file (the shareable unit) |
+| `ECP_TEST_DB` | `false` | `true` uses a disposable copy of `ECP_DB_PATH`; local edits reset on backend restart |
 | `ECP_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` for the API |
 | `ECP_DATA_SOURCE` | `synthetic` | `synthetic` or `jira` |
 | `ECP_SEED_IF_EMPTY` | `true` | Import from the source if the DB is empty on startup |
@@ -77,6 +78,46 @@ flow offline with no credentials, run `ECP_JIRA_FAKE=true npm run dev`.
 **Security:** the SQLite database is the shareable unit, so **secrets never
 touch it**. The Jira API token lives only in the environment / `.env` (which is
 gitignored).
+
+### Disposable database mode
+
+Use `ECP_TEST_DB=true` for ordinary development against a real, existing SQLite
+file. The backend takes a transactionally consistent SQLite copy into a unique
+OS-temporary directory and uses that copy for all planner data, snapshots,
+imports, and Jira caches. It discards the entire workspace on a graceful
+restart or shutdown, leaving the source database unchanged.
+
+```bash
+ECP_TEST_DB=true \
+ECP_DB_PATH=/Users/aforsythe1/Documents/coding/personal/engineering_capacity_planner/packages/backend/packages/backend/data/new-team.db \
+ECP_DATA_SOURCE=jira \
+ECP_JIRA_FAKE=false \
+ECP_JIRA_REQUEST_DEBUG=false \
+npm run dev
+```
+
+Startup logs state either `ECP_TEST_DB enabled` with the disposable copy path or
+`Persistent database mode`; `GET /health` reports `databaseMode` as `test-copy`
+or `persistent` without exposing paths. A browser refresh does not reset the
+copy—restart the backend to receive a fresh baseline. Remove only
+`ECP_TEST_DB` (leave `ECP_DB_PATH` identical) for a real Standup or any change
+that must persist. Those durable changes become the baseline for later test
+runs.
+
+Test mode requires an existing, readable filesystem database; `:memory:` and
+SQLite URI paths are rejected. It protects only local planner storage: it is
+not a dry-run guard for any Jira-writing utilities or future external-service
+mutations.
+
+For the repository's usual planner database, use the Make targets instead:
+
+```bash
+make dev-test-db        # disposable everyday development run
+make dev-persistent-db  # deliberate durable run, such as a real Standup
+```
+
+Both commands use the same default database path. To use another persistent
+database, pass `ECP_DB_PATH=/absolute/path/to/planner.db` to either target.
 
 ## Installing Dependencies
 

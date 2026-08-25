@@ -19,6 +19,7 @@ describe('loadConfig', () => {
     expect(c.host).toBe('127.0.0.1');
     expect(c.port).toBe(3001);
     expect(c.dbPath).toBe('./data/ecp.db');
+    expect(c.testDb).toBe(false);
     expect(c.corsOrigin).toBe('*');
     expect(c.dataSource).toBe('synthetic');
     expect(c.seedIfEmpty).toBe(true);
@@ -76,6 +77,16 @@ describe('loadConfig', () => {
     expect(loadConfig({ ECP_SEED_IF_EMPTY: 'off' }).seedIfEmpty).toBe(false);
     expect(loadConfig({ ECP_SEED_IF_EMPTY: 'maybe' }).seedIfEmpty).toBe(true); // default
     expect(loadConfig({ ECP_PORT: 'abc' }).port).toBe(3001); // default
+  });
+
+  it('parses the test database safety switch strictly', () => {
+    for (const value of ['1', 'true', 'YES', 'On']) {
+      expect(loadConfig({ ECP_TEST_DB: value }).testDb).toBe(true);
+    }
+    for (const value of ['0', 'false', 'NO', 'off']) {
+      expect(loadConfig({ ECP_TEST_DB: value }).testDb).toBe(false);
+    }
+    expect(() => loadConfig({ ECP_TEST_DB: 'maybe' })).toThrow(/ECP_TEST_DB/);
   });
 });
 

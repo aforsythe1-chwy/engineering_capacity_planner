@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import Database from 'better-sqlite3';
 import { buildServer } from '../src/server.js';
 
 let app: FastifyInstance | undefined;
@@ -48,6 +49,39 @@ describe('API server', () => {
     app = await buildServer({ dbPath: ':memory:', seedIfEmpty: false });
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.json().status).toBe('ok');
+    expect(res.json().databaseMode).toBe('persistent');
+  });
+
+  it('runs test mode against a disposable copy and resets it after close', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ecp-test-server-'));
+    const sourcePath = join(dir, 'source.db');
+    const source = await buildServer({ dbPath: sourcePath });
+    await source.close();
+    const workspacesBefore = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith('ecp-test-db-')));
+
+    app = await buildServer({ dbPath: sourcePath, testDb: true });
+    expect((await app.inject({ method: 'GET', url: '/health' })).json().databaseMode).toBe('test-copy');
+    expect((await app.inject({
+      method: 'PATCH', url: '/api/settings', payload: { oncall_multiplier: 0.3 },
+    })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/db/snapshot' })).statusCode).toBe(200);
+
+    const original = new Database(sourcePath, { readonly: true, fileMustExist: true });
+    expect(original.prepare("SELECT value FROM settings WHERE key = 'oncall_multiplier'").get()).toEqual({ value: '0.5' });
+    original.close();
+    expect(readdirSync(dir)).not.toContainEqual(expect.stringMatching(/snapshot/));
+
+    await app.close();
+    app = undefined;
+    const workspacesAfter = readdirSync(tmpdir()).filter((name) => name.startsWith('ecp-test-db-'));
+    expect(workspacesAfter.every((name) => workspacesBefore.has(name))).toBe(true);
+
+    app = await buildServer({ dbPath: sourcePath, testDb: true });
+    const settings = (await app.inject({ method: 'GET', url: '/api/dataset' })).json().settings;
+    expect(settings.find((setting: { key: string }) => setting.key === 'oncall_multiplier')).toMatchObject({ value: '0.5' });
+    await app.close();
+    app = undefined;
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('advertises the mutating verbs in CORS', async () => {

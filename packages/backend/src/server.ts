@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { type AppConfig, loadConfig, loadDotenv } from './config.js';
 import { openDatabase } from './db/database.js';
+import { prepareRuntimeDatabase } from './db/test-database.js';
 import { readDataset, writeDataset } from './db/persist.js';
 import { buildJiraClient, createImporter } from './importer/factory.js';
 import { HttpError } from './http-error.js';
@@ -34,15 +35,40 @@ export interface BuildServerDeps {
  */
 export async function buildServer(overrides: Partial<AppConfig> = {}, deps: BuildServerDeps = {}) {
   let config: AppConfig = { ...loadConfig(), ...overrides };
-
   const app = Fastify({ logger: true });
+  const databaseTarget = await prepareRuntimeDatabase(config.dbPath, config.testDb);
+  config = { ...config, dbPath: databaseTarget.effectivePath };
   let jiraCache: JiraRequestCache | undefined;
+
+  if (databaseTarget.mode === 'test-copy') {
+    app.log.info(
+      `ECP_TEST_DB enabled — using ephemeral copy ${databaseTarget.effectivePath} of ${databaseTarget.sourcePath}; local changes will be discarded on restart`,
+    );
+  } else {
+    app.log.info(`Persistent database mode — changes will be saved to ${databaseTarget.sourcePath}`);
+  }
+
+  try {
 
   // Demo mode: stand up a pre-seeded fake Jira and default its mapping, so the
   // field mapper + Sync work in the real app with no credentials.
   let jiraRawClient = deps.jiraClient;
   let jiraClient = jiraRawClient;
   const db = openDatabase({ path: config.dbPath });
+  app.addHook('onClose', async () => {
+    try {
+      db.close();
+    } finally {
+      try {
+        databaseTarget.cleanup();
+        if (databaseTarget.mode === 'test-copy') {
+          app.log.info(`Discarded ephemeral test database copy at ${databaseTarget.effectivePath}`);
+        }
+      } catch (error) {
+        app.log.warn({ err: error, workspace: databaseTarget.effectivePath }, 'Unable to discard ephemeral test database copy');
+      }
+    }
+  });
   if (config.jiraFake && !jiraRawClient) {
     jiraRawClient = await createDemoJiraClient(config.syntheticSeed);
     jiraClient = jiraRawClient;
@@ -108,7 +134,12 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
     return reply.code(500).send({ error: 'Internal Server Error' });
   });
 
-  app.get('/health', async () => ({ status: 'ok', dataSource: config.dataSource, jiraRequestDebug: jiraCache?.enabled ?? false }));
+  app.get('/health', async () => ({
+    status: 'ok',
+    dataSource: config.dataSource,
+    jiraRequestDebug: jiraCache?.enabled ?? false,
+    databaseMode: databaseTarget.mode,
+  }));
 
   app.get('/api/summary', async () => {
     const data = readDataset(db);
@@ -140,11 +171,40 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   // Local DB snapshot + drag-and-drop import.
   registerDbRoutes(app, db, config);
 
-  app.addHook('onClose', async () => {
-    db.close();
-  });
-
   return app;
+  } catch (error) {
+    try {
+      await app.close();
+    } finally {
+      // Covers failures while opening the working copy, before its onClose hook
+      // has been registered. The target cleanup is idempotent for later stages.
+      try {
+        databaseTarget.cleanup();
+      } catch (cleanupError) {
+        app.log.warn({ err: cleanupError, workspace: databaseTarget.effectivePath }, 'Unable to discard ephemeral test database copy');
+      }
+    }
+    throw error;
+  }
+}
+
+/** Install one-shot process shutdown handling for the executable server only. */
+export function installGracefulShutdown(app: Awaited<ReturnType<typeof buildServer>>): void {
+  let shuttingDown: Promise<void> | undefined;
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = (async () => {
+      app.log.info(`Received ${signal}; shutting down gracefully`);
+      try {
+        await app.close();
+      } catch (error) {
+        process.exitCode = 1;
+        app.log.error(error, 'Graceful shutdown failed');
+      }
+    })();
+  };
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 // Entry point: `npm start` after a build, or `npm run dev` via tsx.
@@ -152,11 +212,14 @@ const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   loadDotenv();
   const config = loadConfig();
-  buildServer()
-    .then((app) => app.listen({ port: config.port, host: config.host }))
+  buildServer(config)
+    .then(async (app) => {
+      await app.listen({ port: config.port, host: config.host });
+      installGracefulShutdown(app);
+    })
     .catch((err) => {
       // eslint-disable-next-line no-console
       console.error(err);
-      process.exit(1);
+      process.exitCode = 1;
     });
 }
