@@ -14,7 +14,7 @@ const members: TeamMember[] = [
 const note = (overrides: Partial<StandupNote> = {}): StandupNote => ({
   id: 'note-1', sessionId: 'session-1', body: 'Follow up', allTeam: false, memberIds: [], position: 0,
   createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z', state: 'open',
-  completedAt: null, deferredAt: null, sourceNoteId: null, sourceSessionDate: null, mentions: [], ...overrides,
+  completedAt: null, deferredAt: null, sourceNoteId: null, sourceSessionDate: null, contextMemberId: null, contextMemberName: null, mentions: [], ...overrides,
 });
 
 describe('deriveStandupRequiredPeople', () => {

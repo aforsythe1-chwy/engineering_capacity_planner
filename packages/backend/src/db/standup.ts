@@ -22,7 +22,7 @@ function expectedRevision(value: unknown): number {
   return value as number;
 }
 function sessionRow(row: any): StandupSession {
-  return { id: row.id, teamId: row.team_id, date: row.standup_date, sprintId: row.sprint_id ?? null, sprintName: row.sprint_name ?? null, status: row.status, startedAt: row.started_at, updatedAt: row.updated_at, completedAt: row.completed_at ?? null, committedAt: row.committed_at ?? null, revision: row.revision };
+  return { id: row.id, teamId: row.team_id, date: row.standup_date, sprintId: row.sprint_id ?? null, sprintName: row.sprint_name ?? null, status: row.status, startedAt: row.started_at, updatedAt: row.updated_at, completedAt: row.completed_at ?? null, revision: row.revision };
 }
 function participantRow(row: any): StandupParticipant {
   return { sessionId: row.session_id, memberId: row.member_id, memberName: row.member_name, position: row.position, disposition: row.disposition, resolvedAt: row.resolved_at ?? null };
@@ -111,7 +111,7 @@ function materializeDeferred(db: Db, targetId: string): void {
 }
 
 function assertMutable(row: any, revision: number): void {
-  if (row.status === 'completed' || row.committed_at) throw conflict('Completed or committed standups are read-only');
+  if (row.status === 'completed') throw conflict('Completed standups are read-only');
   if (row.revision !== revision) throw conflict('This standup changed in another tab; reload and try again');
 }
 function touch(db: Db, id: string): void { db.prepare('UPDATE standup_session SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now(), id); }
@@ -182,12 +182,11 @@ export function reorderNotes(db: Db, sessionId: string, input: any): StandupAggr
 }
 
 export function upsertCheckIn(db: Db, sessionId: string, memberId: string, input: any): BandwidthCheckIn {
-  const row = getSessionRow(db, sessionId); if (row.status !== 'active' || row.committed_at) throw conflict('Check-ins can only change during an active standup');
+  const row = getSessionRow(db, sessionId); if (row.status !== 'active') throw conflict('Check-ins can only change during an active standup');
   if (!db.prepare('SELECT 1 FROM standup_participant WHERE session_id = ? AND member_id = ?').get(sessionId, memberId)) throw notFound(`Participant ${memberId} not found in standup ${sessionId}`);
   return upsertBandwidthCheckIn(db, memberId, row.standup_date, { ...input, sessionId });
 }
-export function deleteCheckIn(db: Db, sessionId: string, memberId: string): void { const row = getSessionRow(db, sessionId); if (row.status !== 'active' || row.committed_at) throw conflict('Check-ins can only change during an active standup'); deleteBandwidthCheckIn(db, memberId, row.standup_date); }
-export function commitStandup(db: Db, sessionId: string): StandupAggregate { const row = getSessionRow(db, sessionId); if (row.status !== 'completed') throw conflict('Finish Standup before committing it'); if (!row.committed_at) db.prepare('UPDATE standup_session SET committed_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ?').run(now(), now(), sessionId); return getStandup(db, sessionId); }
+export function deleteCheckIn(db: Db, sessionId: string, memberId: string): void { const row = getSessionRow(db, sessionId); if (row.status !== 'active') throw conflict('Check-ins can only change during an active standup'); deleteBandwidthCheckIn(db, memberId, row.standup_date); }
 export function deleteStandup(db: Db, sessionId: string): void { db.transaction(() => { const row = getSessionRow(db, sessionId); db.prepare('DELETE FROM bandwidth_check_in WHERE session_id = ?').run(sessionId); db.prepare('DELETE FROM standup_session WHERE id = ?').run(row.id); })(); }
 
 export function finishStandup(db: Db, sessionId: string, input: any): StandupAggregate {

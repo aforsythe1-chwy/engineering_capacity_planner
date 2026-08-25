@@ -206,7 +206,6 @@ CREATE TABLE IF NOT EXISTS standup_session (
   started_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT,
-  committed_at TEXT,
   revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
   final_schema_version INTEGER,
   final_snapshot_json TEXT,

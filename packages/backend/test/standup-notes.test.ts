@@ -98,5 +98,17 @@ describe('Standup note participant context', () => {
     });
     expect(postStandup.statusCode).toBe(200);
     expect(postStandup.json().notes[0]).toMatchObject({ contextMemberId: null, contextMemberName: null, memberIds: [] });
+
+    const finished = await app!.inject({
+      method: 'POST',
+      url: `/api/standups/${started.session.id}/finish`,
+      payload: { expectedRevision: postStandup.json().session.revision },
+    });
+    expect(finished.statusCode).toBe(200);
+    expect(finished.json().session).toMatchObject({ status: 'completed' });
+    expect(finished.json().session.completedAt).toEqual(expect.any(String));
+
+    const removedCommitEndpoint = await app!.inject({ method: 'POST', url: `/api/standups/${started.session.id}/commit` });
+    expect(removedCommitEndpoint.statusCode).toBe(404);
   });
 });

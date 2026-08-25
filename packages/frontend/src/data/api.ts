@@ -29,7 +29,6 @@ export const getStandup = (sessionId: string): Promise<StandupAggregate> => requ
 export const startStandup = (teamId: string, date: string): Promise<StandupAggregate> => request('POST', '/api/standups/start', { teamId, date });
 export const resolveStandupParticipant = (sessionId: string, memberId: string, disposition: 'completed' | 'skipped', expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}`, { disposition, expectedRevision });
 export const finishStandup = (sessionId: string, expectedRevision: number): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/finish`, { expectedRevision });
-export const commitStandup = (sessionId: string): Promise<StandupAggregate> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/commit`);
 export const deleteStandup = (sessionId: string): Promise<void> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}`);
 export const upsertStandupCheckIn = (sessionId: string, memberId: string, input: { feeling: BandwidthCheckIn['feeling']; note?: string | null }): Promise<BandwidthCheckIn> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(memberId)}`, input);
 export const deleteStandupCheckIn = (sessionId: string, memberId: string): Promise<void> => request('DELETE', `/api/standups/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(memberId)}`);

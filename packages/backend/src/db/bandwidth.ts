@@ -61,8 +61,8 @@ function requireTeamMember(db: Db, teamId: string, memberId: unknown): string {
 }
 
 function standupForDay(db: Db, teamId: string, date: IsoDate): BandwidthDay['standup'] {
-  const session = db.prepare('SELECT id, status, committed_at FROM standup_session WHERE team_id = ? AND standup_date = ?').get(teamId, date) as any;
-  return session ? { sessionId: session.id, status: session.status, committedAt: session.committed_at ?? null } : null;
+  const session = db.prepare('SELECT id, status FROM standup_session WHERE team_id = ? AND standup_date = ?').get(teamId, date) as any;
+  return session ? { sessionId: session.id, status: session.status } : null;
 }
 
 function checkInsForDay(db: Db, teamId: string, date: IsoDate): BandwidthCheckIn[] {

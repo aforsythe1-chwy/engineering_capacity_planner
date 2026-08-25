@@ -84,7 +84,6 @@ export interface BandwidthCheckIn {
 export interface BandwidthDayStandupSource {
   sessionId: string;
   status: StandupStatus;
-  committedAt?: string | null;
 }
 
 /** Complete bandwidth state for one team calendar day. */
@@ -386,7 +385,6 @@ export interface StandupSession {
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
-  committedAt: string | null;
   revision: number;
 }
 

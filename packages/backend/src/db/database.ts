@@ -56,7 +56,6 @@ function migrate(db: Db): void {
   ensureColumn(db, 'work_item', 'is_estimated', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'work_item', 'jira_sprint_assigned', 'INTEGER');
   ensureColumn(db, 'bandwidth_check_in', 'session_id', 'TEXT');
-  ensureColumn(db, 'standup_session', 'committed_at', 'TEXT');
   ensureColumn(db, 'standup_note', 'note_state', "TEXT NOT NULL DEFAULT 'open'");
   ensureColumn(db, 'standup_note', 'completed_at', 'TEXT');
   ensureColumn(db, 'standup_note', 'deferred_at', 'TEXT');

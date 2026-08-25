@@ -25,7 +25,7 @@ test('renders compact, accessible standup ticket groups without responsive overf
   const dataset = structuredClone(fixture) as DomainDataset;
   const [first, second] = dataset.members;
   if (!first || !second) throw new Error('The fixture needs two members for the standup harness.');
-  const session = { id: 'standup-visual', teamId: first.teamId, date: '2026-08-16', sprintId: 'sprint-1', sprintName: 'Synthetic sprint', status: 'active' as const, startedAt: capturedAt, updatedAt: capturedAt, completedAt: null, committedAt: null, revision: 1 };
+  const session = { id: 'standup-visual', teamId: first.teamId, date: '2026-08-16', sprintId: 'sprint-1', sprintName: 'Synthetic sprint', status: 'active' as const, startedAt: capturedAt, updatedAt: capturedAt, completedAt: null, revision: 1 };
   const aggregate = { session, participants: [
     { sessionId: session.id, memberId: first.id, memberName: first.name, position: 0, disposition: 'pending' as const, resolvedAt: null },
     { sessionId: session.id, memberId: second.id, memberName: second.name, position: 1, disposition: 'pending' as const, resolvedAt: null },
