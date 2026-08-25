@@ -9,7 +9,7 @@ test('uses @ mentions and compact audience chips when adding standup notes', asy
   const dataset = structuredClone(fixture) as DomainDataset;
   const [first, second] = dataset.members;
   if (!first || !second) throw new Error('The fixture needs two team members.');
-  const session = { id: 'standup-notes', teamId: first.teamId, date: '2026-08-19', sprintId: 'sprint-1', sprintName: 'Synthetic sprint', status: 'active' as const, startedAt: capturedAt, updatedAt: capturedAt, completedAt: null, committedAt: null, revision: 1 };
+  const session = { id: 'standup-notes', teamId: first.teamId, date: '2026-08-19', sprintId: 'sprint-1', sprintName: 'Synthetic sprint', status: 'active' as const, startedAt: capturedAt, updatedAt: capturedAt, completedAt: null, revision: 1 };
   let aggregate: StandupAggregate = { session, participants: [{ sessionId: session.id, memberId: first.id, memberName: first.name, position: 0, disposition: 'pending', resolvedAt: null }], notes: [{ id: 'existing-note', sessionId: session.id, body: 'Testing something here', allTeam: false, memberIds: [second.id], position: 0, createdAt: capturedAt, updatedAt: capturedAt, state: 'open', completedAt: null, deferredAt: null, sourceNoteId: null, sourceSessionDate: null, mentions: [{ kind: 'member', id: second.id, label: second.name }] }, { id: 'second-note', sessionId: session.id, body: 'Testing another follow-up', allTeam: true, memberIds: [], position: 1, createdAt: capturedAt, updatedAt: capturedAt, state: 'open', completedAt: null, deferredAt: null, sourceNoteId: null, sourceSessionDate: null, mentions: [] }], checkIns: [] };
   const noteBodies: unknown[] = [];
   const reorderBodies: unknown[] = [];
@@ -91,7 +91,7 @@ test('shows the people required for open post-standup follow-ups', async ({ page
   const dataset = structuredClone(fixture) as DomainDataset;
   const [first, second] = dataset.members;
   if (!first || !second) throw new Error('The fixture needs two team members.');
-  const session = { id: 'post-standup-required', teamId: first.teamId, date: '2026-08-19', sprintId: 'sprint-1', sprintName: 'Synthetic sprint', status: 'post_standup' as const, startedAt: capturedAt, updatedAt: capturedAt, completedAt: null, committedAt: null, revision: 1 };
+  const session = { id: 'post-standup-required', teamId: first.teamId, date: '2026-08-19', sprintId: 'sprint-1', sprintName: 'Synthetic sprint', status: 'post_standup' as const, startedAt: capturedAt, updatedAt: capturedAt, completedAt: null, revision: 1 };
   const aggregate: StandupAggregate = {
     session,
     participants: [

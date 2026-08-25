@@ -84,7 +84,6 @@ export interface BandwidthCheckIn {
 export interface BandwidthDayStandupSource {
   sessionId: string;
   status: StandupStatus;
-  committedAt?: string | null;
 }
 
 /** Complete bandwidth state for one team calendar day. */
@@ -386,7 +385,6 @@ export interface StandupSession {
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
-  committedAt: string | null;
   revision: number;
 }
 
@@ -413,6 +411,10 @@ export interface StandupNote {
   deferredAt: string | null;
   sourceNoteId: string | null;
   sourceSessionDate: IsoDate | null;
+  /** Participant who was active when this note was originally created. */
+  contextMemberId: string | null;
+  /** Snapshot name for the participant context, retained across renames/deactivation. */
+  contextMemberName: string | null;
   mentions: StandupNoteMention[];
 }
 export type StandupNoteState = 'open' | 'completed' | 'deferred';

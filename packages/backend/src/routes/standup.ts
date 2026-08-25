@@ -28,6 +28,5 @@ export function registerStandupRoutes(app: FastifyInstance, db: Db, jiraClient?:
   app.patch<{ Params: { sessionId: string; noteId: string } }>('/api/standups/:sessionId/notes/:noteId/state', async (req) => standup.setNoteState(db, req.params.sessionId, req.params.noteId, req.body));
   app.put<{ Params: { sessionId: string } }>('/api/standups/:sessionId/notes/order', async (req) => standup.reorderNotes(db, req.params.sessionId, req.body));
   app.post<{ Params: { sessionId: string } }>('/api/standups/:sessionId/finish', async (req) => standup.finishStandup(db, req.params.sessionId, req.body));
-  app.post<{ Params: { sessionId: string } }>('/api/standups/:sessionId/commit', async (req) => standup.commitStandup(db, req.params.sessionId));
   app.delete<{ Params: { sessionId: string } }>('/api/standups/:sessionId', async (req, reply) => { standup.deleteStandup(db, req.params.sessionId); reply.code(204); });
 }

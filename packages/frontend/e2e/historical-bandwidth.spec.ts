@@ -65,7 +65,7 @@ test('shows a Standup-managed historical day without a calendar save action', as
   const dataset = structuredClone(fixture) as DomainDataset;
   const first = dataset.members[0];
   if (!first) throw new Error('The fixture needs one member.');
-  const sessionDay: BandwidthDay = { teamId: first.teamId, date, checkIns: [], standup: { sessionId: 'standup-history', status: 'completed', committedAt: timestamp } };
+  const sessionDay: BandwidthDay = { teamId: first.teamId, date, checkIns: [], standup: { sessionId: 'standup-history', status: 'completed' } };
 
   await page.route('**/health', (route) => route.fulfill({ json: { dataSource: 'synthetic', jiraRequestDebug: false } }));
   await page.route('**/api/dataset', (route) => route.fulfill({ json: dataset }));
