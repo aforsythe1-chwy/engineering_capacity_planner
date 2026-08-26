@@ -80,7 +80,13 @@ function migrate(db: Db): void {
     mention_kind TEXT NOT NULL CHECK(mention_kind IN ('member', 'group')),
     mention_id TEXT NOT NULL, label TEXT NOT NULL,
     PRIMARY KEY(note_id, position), UNIQUE(note_id, mention_kind, mention_id)
-  ); CREATE UNIQUE INDEX IF NOT EXISTS idx_standup_note_source ON standup_note(source_note_id) WHERE source_note_id IS NOT NULL`);
+  ); CREATE UNIQUE INDEX IF NOT EXISTS idx_standup_note_source ON standup_note(source_note_id) WHERE source_note_id IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS intake_request_awareness (
+    id TEXT PRIMARY KEY, jira_key TEXT NOT NULL UNIQUE,
+    standup_session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE RESTRICT,
+    aware_date TEXT NOT NULL, date_confidence TEXT NOT NULL CHECK(date_confidence IN ('high', 'medium', 'low')),
+    notes TEXT, created_at TEXT NOT NULL
+  ); CREATE INDEX IF NOT EXISTS idx_intake_awareness_date ON intake_request_awareness(aware_date, jira_key)`);
 }
 
 /** Add `column` to `table` if it's not already present. */

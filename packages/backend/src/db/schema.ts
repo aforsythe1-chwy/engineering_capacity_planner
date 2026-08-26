@@ -296,6 +296,16 @@ CREATE TABLE IF NOT EXISTS standup_context_snapshot (
   PRIMARY KEY(session_id, scope_kind, scope_key)
 );
 
+CREATE TABLE IF NOT EXISTS intake_request_awareness (
+  id TEXT PRIMARY KEY,
+  jira_key TEXT NOT NULL UNIQUE,
+  standup_session_id TEXT NOT NULL REFERENCES standup_session(id) ON DELETE RESTRICT,
+  aware_date TEXT NOT NULL,
+  date_confidence TEXT NOT NULL CHECK(date_confidence IN ('high', 'medium', 'low')),
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_member_team       ON team_member(team_id);
 CREATE INDEX IF NOT EXISTS idx_bandwidth_check_in_date ON bandwidth_check_in(check_in_date);
 CREATE INDEX IF NOT EXISTS idx_story_epic         ON user_story(epic_key);
@@ -313,6 +323,7 @@ CREATE INDEX IF NOT EXISTS idx_standup_session_team_date ON standup_session(team
 CREATE INDEX IF NOT EXISTS idx_standup_participant_session ON standup_participant(session_id, position);
 CREATE INDEX IF NOT EXISTS idx_standup_audio_team_default_track ON standup_audio_team_default(track_id);
 CREATE INDEX IF NOT EXISTS idx_standup_audio_member_override_track ON standup_audio_member_override(track_id);
+CREATE INDEX IF NOT EXISTS idx_intake_awareness_date ON intake_request_awareness(aware_date, jira_key);
 `;
 
 /** Order tables must be inserted into to satisfy foreign keys. */

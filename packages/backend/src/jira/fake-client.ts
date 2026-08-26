@@ -118,7 +118,8 @@ export interface FakeJiraOptions {
  * it straight back — the whole round-trip runs headless, no network.
  *
  * The JQL matcher understands only the clauses the importer emits
- * (`project =`, `issuetype = Epic`, `parent =`, `parent in (...)`), which is all
+ * (`project =`, `issuetype = Epic`, `parent =`, `parent in (...)`, labels, and
+ * status categories), which is all
  * this double needs to be exercised end-to-end.
  */
 export class FakeJiraClient implements JiraClient {
@@ -238,6 +239,7 @@ export class FakeJiraClient implements JiraClient {
   }): Promise<JiraSearchResult> {
     const match = this.compile(input.jql);
     const all = [...this.issues.values()].filter((i) => match(i));
+    if (/ORDER BY\s+updated\s+DESC\s*,\s*key\s+ASC/i.test(input.jql)) all.sort((a, b) => String(b.fields.updated ?? '').localeCompare(String(a.fields.updated ?? '')) || a.key.localeCompare(b.key));
     const maxResults = input.maxResults ?? 100;
     const start = input.nextPageToken ? Number(input.nextPageToken) : 0;
     const slice = all.slice(start, start + maxResults);
@@ -270,6 +272,11 @@ export class FakeJiraClient implements JiraClient {
       } else if ((m = /^parent\s+in\s*\((.+)\)$/i.exec(clause))) {
         const keys = new Set(m[1]!.split(',').map(unquote));
         preds.push((i) => (i.fields.parent ? keys.has(i.fields.parent.key) : false));
+      } else if ((m = /^labels\s*=\s*(.+)$/i.exec(clause))) {
+        const label = unquote(m[1]!);
+        preds.push((i) => (i.fields.labels ?? []).includes(label));
+      } else if (/^statusCategory\s*!=\s*Done$/i.test(clause)) {
+        preds.push((i) => i.fields.status?.statusCategory?.key !== 'done' && i.fields.status?.statusCategory?.name !== 'Done');
       } else {
         throw new Error(`Fake Jira: unsupported JQL clause "${clause}"`);
       }

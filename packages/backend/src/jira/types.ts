@@ -86,6 +86,7 @@ export interface JiraIssueFields {
   parent?: JiraIssueRef | null;
   issuetype?: { name: string; subtask?: boolean };
   issuelinks?: JiraIssueLink[];
+  updated?: string;
   /** Custom fields (story points, sprint, …) keyed by `customfield_*`. */
   [customField: string]: unknown;
 }

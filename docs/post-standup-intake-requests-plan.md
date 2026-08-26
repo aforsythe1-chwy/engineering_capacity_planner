@@ -1,6 +1,6 @@
 # Post-Standup Intake Requests — Durable Implementation Plan
 
-**Status:** Planned; implementation not started
+**Status:** Implemented 2026-08-26
 
 **Created:** 2026-08-26
 
@@ -391,6 +391,8 @@ commands, and document contract changes here instead of relying on chat history.
 
 ### Slice 1 — Intake query, snapshots, and focused APIs
 
+**Completed:** 2026-08-26
+
 **Primary seams**
 
 - `packages/shared/src/domain.ts`
@@ -415,6 +417,8 @@ retains last-known-good data on failure, and never invokes planner reconciliatio
 
 ### Slice 2 — Background lifecycle and post-standup pane
 
+**Completed:** 2026-08-26
+
 **Primary seams**
 
 - `packages/frontend/src/components/RunStandupPage.tsx`
@@ -434,6 +438,8 @@ retains last-known-good data on failure, and never invokes planner reconciliatio
 external Jira changes without disturbing notes or standup progression.
 
 ### Slice 3 — Optional awareness persistence and form
+
+**Completed:** 2026-08-26
 
 **Primary seams**
 
@@ -462,6 +468,8 @@ external Jira changes without disturbing notes or standup progression.
 request; cancel/no-log/failed-log paths leave Finish Standup fully usable.
 
 ### Slice 4 — Regression, visual, and operational hardening
+
+**Completed:** core regression checks completed 2026-08-26. Focused automated intake and browser-visual coverage remain a follow-up.
 
 **Primary seams**
 
@@ -571,6 +579,9 @@ Add deterministic coverage for:
 
 Record exact successful commands and any intentionally scoped exceptions in this plan during
 implementation.
+
+**Implemented validation:** `nvm use && npm run typecheck`, `nvm use && npm run test`, and
+`nvm use && npm run build` (with `nvm` sourced from its local install in non-interactive shells).
 
 ## 8. Manual validation
 

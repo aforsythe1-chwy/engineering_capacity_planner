@@ -9,6 +9,9 @@ import type {
   StandupNote,
   StandupParticipant,
   StandupMemberTicketContext,
+  StandupIntakeContext,
+  IntakeAwarenessRecord,
+  IntakeAwarenessConfidence,
   StandupSession,
   Oncall,
   PlannedPlacement,
@@ -40,6 +43,9 @@ export const setStandupNoteState = (sessionId: string, noteId: string, state: 'o
 export const reorderStandupNotes = (sessionId: string, noteIds: string[], expectedRevision: number): Promise<StandupAggregate> => request('PUT', `/api/standups/${encodeURIComponent(sessionId)}/notes/order`, { noteIds, expectedRevision });
 export const getStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets`);
 export const refreshStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets/refresh`);
+export const getStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests`);
+export const refreshStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/refresh`);
+export const createIntakeAwareness = (sessionId: string, jiraKey: string, input: { awareDate: string; dateConfidence: IntakeAwarenessConfidence; notes?: string }): Promise<IntakeAwarenessRecord> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/${encodeURIComponent(jiraKey)}/awareness`, input);
 
 /**
  * Typed client for the backend Configuration write API (project plan §6). Each

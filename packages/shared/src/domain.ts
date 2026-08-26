@@ -445,6 +445,38 @@ export interface StandupMemberTicketContext {
   truncated: boolean;
 }
 
+/** A current Jira request shown during the editable post-standup stage. */
+export interface IntakeRequest {
+  key: string;
+  url: string | null;
+  summary: string;
+  status: string;
+  statusCategory: string;
+  assigneeAccountId: string | null;
+  assigneeName: string | null;
+  updatedAt: string | null;
+  awarenessLogged: boolean;
+}
+
+export interface StandupIntakeContext {
+  capturedAt: string;
+  source: 'jira' | 'snapshot';
+  freshness: 'fresh' | 'stale' | 'unavailable';
+  requests: IntakeRequest[];
+  errorMessage: string | null;
+}
+
+export type IntakeAwarenessConfidence = 'high' | 'medium' | 'low';
+export interface IntakeAwarenessRecord {
+  id: string;
+  jiraKey: string;
+  standupSessionId: string;
+  awareDate: IsoDate;
+  dateConfidence: IntakeAwarenessConfidence;
+  notes: string | null;
+  createdAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Dataset
 // ---------------------------------------------------------------------------
