@@ -1,6 +1,6 @@
 # Standup Ticket Cards and Readability — Durable Implementation Plan
 
-**Status:** Proposed; ready for implementation
+**Status:** Implemented; manual validation pending
 
 **Created:** 2026-08-16
 
@@ -12,7 +12,7 @@ increasing the ticket area's type scale and contrast so facilitators can read it
 during a spoken standup.
 
 **Intended outcome:** At ordinary desktop modal widths, tickets within each status group appear in
-a balanced multi-column card grid with larger keys and summaries. The section remains easy to scan
+a balanced multi-column card layout with larger keys and summaries. The section remains easy to scan
 at a distance, collapses deliberately at narrower widths, and preserves all existing ticket data,
 status grouping, refresh states, external-link behavior, accessibility, and Standup progression.
 
@@ -47,7 +47,7 @@ existing independently scrolling active-round body.
 - Keep **Sprint tickets** and freshness information in a quiet section header.
 - Keep each configured Jira status as a distinct group with its existing label, category marker,
   and count.
-- Within a status group, render tickets as a responsive card grid.
+- Within a status group, render tickets as a responsive wrapping card layout.
 - Make the Jira key a strong, immediately recognizable eyebrow and the summary the primary
   readable content beneath it.
 - Use a visible but restrained card boundary and nested surface consistent with the existing dark
@@ -135,7 +135,7 @@ These are repository facts verified on 2026-08-26.
 
 ### 3.1 Use responsive cards inside each status group
 
-Retain the semantic status group and list structure, but style each ticket list as a grid. Each
+Retain the semantic status group and list structure, but style each ticket list as a wrapping card layout. Each
 `li` becomes a visually distinct ticket card. Start implementation with a card minimum width near
 220–240px and `repeat(auto-fit, minmax(..., 1fr))`, then tune against the actual right-column width.
 
@@ -260,7 +260,7 @@ creating horizontal overflow.
 
 ### Slice 1 — Card markup and interaction contract
 
-**Status:** Pending
+**Status:** Implemented
 
 **Primary seam:**
 
@@ -283,9 +283,9 @@ creating horizontal overflow.
 **Exit:** Linked and unlinked tickets have correct native semantics and the DOM supports a full-card
 focus/hover surface without changing grouping or data flow.
 
-### Slice 2 — Responsive grid and readable visual system
+### Slice 2 — Responsive card layout and readable visual system
 
-**Status:** Pending
+**Status:** Implemented
 
 **Primary seam:**
 
@@ -293,7 +293,7 @@ focus/hover surface without changing grouping or data flow.
 
 **Work:**
 
-1. Convert `.standup-ticket-list` from a single-column list to a responsive card grid.
+1. Convert `.standup-ticket-list` from a single-column list to a responsive wrapping card layout.
 2. Add a proportional maximum behavior for lone/incomplete rows so cards use space without
    stretching awkwardly.
 3. Replace row separators and the 96px key/summary columns with nested card surfaces and a vertical
@@ -316,7 +316,7 @@ desktop width, text is visibly easier to read, and the layout remains calm rathe
 
 ### Slice 3 — Automated regression coverage
 
-**Status:** Pending
+**Status:** Implemented
 
 **Primary seams:**
 
@@ -349,7 +349,7 @@ readability floor, responsive columns break, semantics regress, or overflow retu
 
 ### Slice 4 — Rendered visual review and plan closeout
 
-**Status:** Pending
+**Status:** Implemented; user validation pending
 
 **Work:**
 
@@ -366,6 +366,22 @@ readability floor, responsive columns break, semantics regress, or overflow retu
 
 **Exit:** The card view is visibly easier to read, uses available width intentionally, and does not
 compromise scrolling, actions, or responsive behavior.
+
+## 5.5 Validation record — 2026-08-26
+
+- `npm --workspace @ecp/frontend run typecheck` passed under Node 22.22.3.
+- `npm --workspace @ecp/frontend run test -- --run test/standupStatusPresentation.test.ts` passed
+  (5 tests).
+- `npm --workspace @ecp/frontend run e2e -- standup-tickets.spec.ts` passed. The revised browser
+  coverage verifies the full-card external link name and focus outline, a three-card desktop row,
+  a two-column layout at 900px, a one-column layout at 390px, lone-card sizing, 14px summary
+  text, and no page-level horizontal overflow.
+- Rendered desktop review confirmed a restrained three-card active-status row, readable key/summary
+  hierarchy, appropriately smaller lone cards in later status groups, and persistent action footer.
+- Implementation choices: cards use a 220px intrinsic minimum, 280px per-card maximum for
+  incomplete rows, 12px gaps, `--panel-2` surfaces, and a three-line desktop clamp. A wrapping
+  flex layout packs incomplete rows from the left instead of distributing spare space. At mobile,
+  cards use one column and summaries wrap without the clamp.
 
 ## 6. Cross-cutting considerations
 
@@ -391,7 +407,7 @@ disable **Skip** or **Next**.
 
 ### Performance
 
-CSS grid and ordinary anchors are sufficient. Do not add JavaScript resize listeners,
+Wrapping flex layout and ordinary anchors are sufficient. Do not add JavaScript resize listeners,
 `ResizeObserver`, masonry layout, virtualization, or client-side measurement for the expected
 ticket counts. The existing content scroll region handles longer sets.
 
@@ -481,11 +497,11 @@ implementation crosses a shared seam.
 
 ## 9. Continuation instructions
 
-**Current status:** Planning is complete. No implementation changes for the card redesign have been
-made. The working tree also contains an unrelated untracked user-owned plan; preserve it.
+**Current status:** Implementation and automated validation are complete. User manual validation
+is pending. The working tree may contain unrelated user-owned changes; preserve them.
 
-**Next action:** Implement Slice 1 in `StandupTickets`, then complete the scoped card/grid CSS in
-Slice 2 before revising the focused Playwright assertions.
+**Next action:** No further implementation is planned. Re-run the focused frontend checks if this
+surface changes.
 
 **First files to inspect after context reset:**
 

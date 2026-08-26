@@ -14,14 +14,15 @@ function ticketContext(memberId: string): StandupMemberTicketContext {
     truncated: false,
     tickets: [
       { key: 'PLAN-101', url: 'https://jira.example.test/browse/PLAN-101', summary: 'Implement a deliberately long ticket summary that verifies two-line clamping without causing horizontal overflow in the standup dialog.', status: 'In Progress', statusId: 'progress', statusCategory: 'indeterminate', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
-      { key: 'PLAN-102', url: 'https://jira.example.test/browse/PLAN-102', summary: 'Review the compact ticket-list treatment', status: 'In Review', statusId: 'review', statusCategory: 'indeterminate', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
-      { key: 'PLAN-103', url: null, summary: 'Unlinked ticket remains noninteractive', status: 'In Review', statusId: 'review', statusCategory: 'indeterminate', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
-      { key: 'PLAN-104', url: 'https://jira.example.test/browse/PLAN-104', summary: 'Completed delivery work', status: 'Done', statusId: 'done', statusCategory: 'done', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
+      { key: 'PLAN-102', url: 'https://jira.example.test/browse/PLAN-102', summary: 'Review the responsive ticket-card treatment', status: 'In Progress', statusId: 'progress', statusCategory: 'indeterminate', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
+      { key: 'PLAN-103', url: null, summary: 'Unlinked ticket remains noninteractive', status: 'In Progress', statusId: 'progress', statusCategory: 'indeterminate', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
+      { key: 'PLAN-104', url: 'https://jira.example.test/browse/PLAN-104', summary: 'Review the updated standup presentation', status: 'In Review', statusId: 'review', statusCategory: 'indeterminate', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
+      { key: 'PLAN-105', url: 'https://jira.example.test/browse/PLAN-105', summary: 'Completed delivery work', status: 'Done', statusId: 'done', statusCategory: 'done', assigneeAccountId: null, assigneeName: null, parentKey: null, parentSummary: null },
     ],
   };
 }
 
-test('renders compact, accessible standup ticket groups without responsive overflow', async ({ page }) => {
+test('renders readable, accessible standup ticket cards without responsive overflow', async ({ page }) => {
   const dataset = structuredClone(fixture) as DomainDataset;
   const [first, second] = dataset.members;
   if (!first || !second) throw new Error('The fixture needs two members for the standup harness.');
@@ -42,20 +43,35 @@ test('renders compact, accessible standup ticket groups without responsive overf
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/?tab=standup');
   await page.getByRole('button', { name: 'Start Standup' }).click();
+  await page.getByRole('button', { name: 'Begin team round' }).click();
 
   const tickets = page.locator('.standup-tickets');
   await expect(tickets.getByRole('heading', { name: /Sprint tickets/ })).toBeVisible();
   await expect(tickets.getByRole('list')).toHaveCount(3);
-  await expect(tickets.locator('li')).toHaveCount(4);
-  await expect(tickets.getByRole('heading', { name: /In Review.*2 tickets/i })).toBeVisible();
+  await expect(tickets.locator('li')).toHaveCount(5);
+  await expect(tickets.getByRole('heading', { name: /In Progress.*3 tickets/i })).toBeVisible();
   await expect(tickets.locator('time')).toHaveAttribute('dateTime', capturedAt);
 
-  const linkedKey = tickets.getByRole('link', { name: 'PLAN-101, opens in a new tab' });
+  const linkedKey = tickets.getByRole('link', { name: /PLAN-101.*Implement a deliberately long ticket summary.*Opens in a new tab/i });
   await expect(linkedKey).toHaveAttribute('target', '_blank');
   await expect(linkedKey).toHaveAttribute('rel', 'noreferrer');
   await expect(tickets.getByRole('link', { name: /PLAN-103/ })).toHaveCount(0);
   await expect(tickets.locator('.tone-done')).toBeVisible();
   await expect(tickets.getByText(/Implement a deliberately long ticket summary/)).toHaveAttribute('title', /Implement a deliberately long ticket summary/);
+
+  const activeCards = tickets.locator('.tone-active .standup-ticket');
+  const [firstCard, secondCard, thirdCard] = await activeCards.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width };
+  }));
+  expect(secondCard.x).toBeGreaterThan(firstCard.x);
+  expect(secondCard.x - firstCard.x).toBeCloseTo(firstCard.width + 12, 0);
+  expect(thirdCard.x).toBeGreaterThan(secondCard.x);
+  expect(secondCard.y).toBeCloseTo(firstCard.y, 0);
+  expect(thirdCard.y).toBeCloseTo(firstCard.y, 0);
+  expect(await tickets.locator('.tone-active .standup-ticket-summary').first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14);
+  const loneCard = tickets.locator('.tone-done .standup-ticket');
+  expect((await loneCard.boundingBox())!.width).toBeLessThan((await tickets.locator('.tone-done .standup-ticket-list').boundingBox())!.width * .75);
 
   for (let index = 0; index < 20 && !await linkedKey.evaluate((element) => element === document.activeElement); index += 1) {
     await page.keyboard.press('Tab');
@@ -64,7 +80,17 @@ test('renders compact, accessible standup ticket groups without responsive overf
   expect(await linkedKey.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe('none');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
+  await page.setViewportSize({ width: 900, height: 900 });
+  const mediumCards = await activeCards.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { x: box.x, y: box.y };
+  }));
+  expect(mediumCards[1]!.x).toBeGreaterThan(mediumCards[0]!.x);
+  expect(mediumCards[2]!.y).toBeGreaterThan(mediumCards[0]!.y);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(tickets.getByRole('list')).toHaveCount(3);
+  const mobileCards = await activeCards.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().x));
+  expect(new Set(mobileCards).size).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
