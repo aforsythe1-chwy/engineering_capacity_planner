@@ -118,6 +118,9 @@ make dev-persistent-db  # deliberate durable run, such as a real Standup
 
 Both commands use the same default database path. To use another persistent
 database, pass `ECP_DB_PATH=/absolute/path/to/planner.db` to either target.
+Both targets explicitly start with `ECP_DATA_SOURCE=jira` and
+`ECP_JIRA_FAKE=false`, so they do not inherit the application's synthetic-data
+defaults. Jira credentials and mapping settings still come from `.env`.
 
 ## Installing Dependencies
 
