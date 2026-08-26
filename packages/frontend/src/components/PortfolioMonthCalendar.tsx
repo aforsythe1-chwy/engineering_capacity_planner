@@ -15,7 +15,7 @@ const FILTERS: ReadonlyArray<{ key: Layer; label: string }> = [
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MAX_VISIBLE_EVENTS = 3;
 
-export function PortfolioMonthCalendar({ model, onAddImportantDate }: { model: PortfolioCalendarModel; onAddImportantDate?: () => void }) {
+export function PortfolioMonthCalendar({ model, onAddImportantDate, heading = 'Portfolio calendar', supportingCopy = 'Timeline dates by epic, with total shared load kept visible across the portfolio.', highlightedSprintId }: { model: PortfolioCalendarModel; onAddImportantDate?: () => void; heading?: string; supportingCopy?: string; highlightedSprintId?: string | null }) {
   const todayMonth = firstOfMonth(model.today);
   const [month, setMonth] = useState(todayMonth);
   const [layers, setLayers] = useState<Record<Layer, boolean>>({ importantDates: true, relevantDays: true, devComplete: true, sprints: true, sharedLoad: true });
@@ -53,7 +53,7 @@ export function PortfolioMonthCalendar({ model, onAddImportantDate }: { model: P
   const monthNumber = parseIso(month).getUTCMonth();
   return <section className="panel proj-calendar portfolio-calendar" data-testid="portfolio-calendar" aria-labelledby="portfolio-calendar-title">
     <div className="cal-toolbar">
-      <div className="cal-toolbar-left"><h2 id="portfolio-calendar-title">Portfolio calendar</h2><span className="hint">Timeline dates by epic, with total shared load kept visible across the portfolio.</span></div>
+      <div className="cal-toolbar-left"><h2 id="portfolio-calendar-title">{heading}</h2><span className="hint">{supportingCopy}</span></div>
       <div className="cal-controls">
         {onAddImportantDate && <button type="button" className="btn primary calendar-add-date" onClick={onAddImportantDate}>Add day</button>}
         <div className="cal-filter" ref={filterRef}>
@@ -78,7 +78,7 @@ export function PortfolioMonthCalendar({ model, onAddImportantDate }: { model: P
           const loadBands = layers.sharedLoad ? model.weeks.filter((item) => item.start <= rowEnd && item.end >= rowStart) : [];
           const sprintHeight = sprintBands.length * 17;
           return <div className="cal-week portfolio-cal-week" role="row" key={rowStart} style={{ '--bars-h': sprintBands.length || loadBands.length ? `${sprintHeight + (loadBands.length ? 23 : 0) + 4}px` : '0px' } as CSSProperties}>
-            {(sprintBands.length > 0 || loadBands.length > 0) && <div className="cal-week-overlay">{sprintBands.map((sprint, index) => <SprintBand key={sprint.id} sprint={sprint} rowStart={rowStart} rowEnd={rowEnd} top={4 + index * 17} />)}{loadBands.map((band) => <LoadBand key={band.start} band={band} rowStart={rowStart} rowEnd={rowEnd} top={4 + sprintHeight} />)}</div>}
+            {(sprintBands.length > 0 || loadBands.length > 0) && <div className="cal-week-overlay">{sprintBands.map((sprint, index) => <SprintBand key={sprint.id} sprint={sprint} rowStart={rowStart} rowEnd={rowEnd} top={4 + index * 17} highlighted={sprint.id === highlightedSprintId} />)}{loadBands.map((band) => <LoadBand key={band.start} band={band} rowStart={rowStart} rowEnd={rowEnd} top={4 + sprintHeight} />)}</div>}
             <div className="cal-week-days">{weekDays.map((date) => {
               const events = byDate.get(date) ?? []; const hidden = events.slice(MAX_VISIBLE_EVENTS); const adjacent = parseIso(date).getUTCMonth() !== monthNumber;
               return <div className={`cal-cell${adjacent ? ' adjacent' : ''}${date === model.today ? ' is-today' : ''}`} role="gridcell" aria-label={`${formatDate(date)}${date === model.today ? ', today' : ''}`} key={date} data-testid={`portfolio-cal-day-${date}`}>
@@ -120,11 +120,11 @@ function LoadBand({ band, rowStart, rowEnd, top }: { band: PortfolioCalendarWeek
   return <div className={`cal-bar sprint load-${tone}`} style={style} role="note" aria-label={`${label}. ${band.slack < 0 ? `${Math.abs(band.slack)} pts over capacity` : `${band.slack} pts slack`}.`} title={`${label} · ${band.slack} pts slack`} data-testid={`portfolio-load-${band.start}`} data-total-load={band.totalLoad} data-capacity={band.capacity}><span className="cal-bar-text">{label}</span></div>;
 }
 
-function SprintBand({ sprint, rowStart, rowEnd, top }: { sprint: PortfolioCalendarSprint; rowStart: IsoDate; rowEnd: IsoDate; top: number }) {
+function SprintBand({ sprint, rowStart, rowEnd, top, highlighted }: { sprint: PortfolioCalendarSprint; rowStart: IsoDate; rowEnd: IsoDate; top: number; highlighted?: boolean }) {
   const start = sprint.start > rowStart ? sprint.start : rowStart; const end = sprint.end < rowEnd ? sprint.end : rowEnd;
   const first = diffDays(rowStart, start); const count = diffDays(start, end) + 1;
   const style: CSSProperties = { left: `calc(${first / 7 * 100}% + 2px)`, width: `calc(${count / 7 * 100}% - 4px)`, top, height: 14 };
-  return <div className="cal-bar sprint cadence" style={style} role="note" aria-label={`${sprint.name}, ${sprint.teamName}. ${formatDate(sprint.start)} through ${formatDate(sprint.end)}.`} title={`${sprint.teamName} · ${sprint.name} · ${formatDate(sprint.start)}–${formatDate(sprint.end)}`} data-testid={`portfolio-sprint-${sprint.id}`}><span className="cal-bar-text">{sprint.name}</span></div>;
+  return <div className={`cal-bar sprint cadence${highlighted ? ' is-highlighted' : ''}`} style={style} role="note" aria-label={`${sprint.name}, ${sprint.teamName}. ${formatDate(sprint.start)} through ${formatDate(sprint.end)}.`} title={`${sprint.teamName} · ${sprint.name} · ${formatDate(sprint.start)}–${formatDate(sprint.end)}`} data-testid={`portfolio-sprint-${sprint.id}`}><span className="cal-bar-text">{sprint.name}</span></div>;
 }
 
 const firstOfMonth = (date: IsoDate): IsoDate => { const value = parseIso(date); return formatIso(new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1))); };

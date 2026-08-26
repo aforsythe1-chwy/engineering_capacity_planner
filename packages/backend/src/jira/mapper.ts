@@ -48,7 +48,7 @@ function sprintEndForCadence(start: string, end: string): string {
  * stable signal (statuses are renameable per project); "In Review" has no
  * category of its own, so a name match promotes it out of "In Progress".
  */
-function mapStatus(fields: JiraIssueFields): WorkItemStatus {
+export function mapJiraStatus(fields: Pick<JiraIssueFields, 'status'>): WorkItemStatus {
   const status = fields.status;
   const name = status?.name ?? '';
   if (/review/i.test(name)) return 'In Review';
@@ -238,13 +238,13 @@ export function datasetFromJira(input: JiraDatasetInput): DomainDataset {
       title: issue.fields.summary ?? issue.key,
       ...estimate,
       ...(jiraSprintAssigned === undefined ? {} : { jiraSprintAssigned }),
-      status: mapStatus(issue.fields),
+    status: mapJiraStatus(issue.fields),
       assigneeId: assignee?.accountId ?? null,
       labels: labelsOf(issue.fields, mapping),
     });
     workItemKeys.add(issue.key);
 
-    if (mapStatus(issue.fields) !== 'Done') {
+    if (mapJiraStatus(issue.fields) !== 'Done') {
       const sprintId = latestSprintId(sprintIds, domainSprintById);
       const sprint = sprintId ? domainSprintById.get(sprintId) : null;
       if (sprint && sprintId) {

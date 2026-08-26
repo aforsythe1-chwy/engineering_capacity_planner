@@ -2713,6 +2713,31 @@ button.tab:hover:not(.active) {
   }
 }
 
+/* Sprint opener: a full-width orientation surface above the reusable calendar. */
+.standup-opener { grid-template-columns: minmax(0, 1fr); }
+.standup-opener-progress { padding: 0 2px; }
+.sprint-progress { padding: 0; }
+.sprint-gauge-time-label { position: relative; z-index: 2; width: max-content; max-width: 100%; margin-bottom: -4px; color: var(--text); font-size: 11px; font-weight: 700; transform: translateX(-50%); }
+.sprint-gauge { height: 16px; }
+.sprint-gauge-time { top: -5px; bottom: -5px; width: 3px; border-radius: 99px; box-shadow: 0 0 0 1px var(--panel); }
+.sprint-gauge-time::before { display: none; }
+.sprint-gauge-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: 12px; }
+.sprint-gauge-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sprint-legend-swatch { display: inline-block; width: 16px; height: 10px; border: 1px solid var(--border); border-radius: 3px; }
+.sprint-legend-swatch.done { background: var(--green); border-color: color-mix(in srgb, var(--green) 72%, var(--border)); }
+.sprint-legend-swatch.review { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 52%, var(--panel)), color-mix(in srgb, var(--accent) 52%, var(--panel)) 4px, color-mix(in srgb, var(--accent) 25%, var(--panel)) 4px, color-mix(in srgb, var(--accent) 25%, var(--panel)) 8px); }
+.sprint-legend-swatch.time { width: 3px; height: 14px; margin: -2px 6px -2px 7px; border: 0; border-radius: 99px; background: var(--text); box-shadow: 0 0 0 1px var(--panel); }
+.sprint-progress-signal { display: flex; align-items: center; gap: 7px; }
+.sprint-progress-signal.is-ahead { color: var(--green); }.sprint-progress-signal.is-close { color: var(--yellow); }.sprint-progress-signal.is-behind { color: var(--red); }.sprint-progress-signal strong { color: var(--text); }
+.sprint-progress-breakdown { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.sprint-gauge-legend { margin-top: 20px; }
+.sprint-gauge-signal-marker { position: absolute; top: calc(100% + 8px); left: 50%; display: grid; width: 18px; height: 18px; place-items: center; border-radius: 50%; background: var(--panel); cursor: help; transform: translateX(-50%); }
+.sprint-gauge-signal-marker.is-ahead { color: var(--green); }.sprint-gauge-signal-marker.is-close { color: var(--yellow); }.sprint-gauge-signal-marker.is-behind { color: var(--red); }
+.sprint-gauge-signal-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sprint-gauge-signal-tooltip { position: absolute; bottom: calc(100% + 7px); left: 50%; width: max-content; max-width: min(280px, 80vw); padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 400; line-height: 1.3; opacity: 0; pointer-events: none; transform: translate(-50%, 3px); transition: opacity .12s ease, transform .12s ease; }
+.sprint-gauge-signal-marker:hover .sprint-gauge-signal-tooltip, .sprint-gauge-signal-marker:focus-visible .sprint-gauge-signal-tooltip { opacity: 1; transform: translate(-50%, 0); }
+@media (max-width: 700px) { .sprint-progress-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }.sprint-gauge-time-label { transform: translateX(-80%); } }
+
 /* ---------------------------------------------------------------------------
    Sync log (project plan §7)
    --------------------------------------------------------------------------- */
@@ -2867,6 +2892,7 @@ button.tab:hover:not(.active) {
 .bandwidth-summary { margin-top: 12px; flex-wrap: wrap; color: var(--muted); }
 .standup-backdrop, .standup-modal { overscroll-behavior: contain; }
 .standup-modal { width: min(1200px, calc(100vw - 32px)); min-width: 0; max-width: none; max-height: 94vh; overflow: auto; }
+.standup-opener { display: grid; grid-template-columns: minmax(0, 1fr) minmax(620px, 1.5fr); gap: 18px; align-items: start; }.standup-opener .portfolio-calendar { margin: 0; }.standup-opener .portfolio-calendar-scroll { min-width: 0; }.standup-opener-progress { min-width: 0; }.sprint-progress { display: grid; gap: 12px; padding: 4px 0; }.sprint-progress h3 { margin: 0; font-size: 16px; }.sprint-progress-heading { display: flex; align-items: start; gap: 10px; }.sprint-progress-heading > div { min-width: 0; margin-right: auto; }.sprint-progress-heading .hint { margin: 3px 0 0; }.sprint-progress-warning { margin: 0; color: var(--yellow); font-size: 12px; }.sprint-gauge { position: relative; height: 14px; overflow: visible; border: 1px solid var(--border); border-radius: 99px; background: var(--panel-2); }.sprint-gauge-done, .sprint-gauge-review { position: absolute; inset: 0 auto 0 0; border-radius: inherit; }.sprint-gauge-review { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 52%, var(--panel)), color-mix(in srgb, var(--accent) 52%, var(--panel)) 4px, color-mix(in srgb, var(--accent) 25%, var(--panel)) 4px, color-mix(in srgb, var(--accent) 25%, var(--panel)) 8px); }.sprint-gauge-done { z-index: 1; background: var(--green); }.sprint-gauge-time { position: absolute; z-index: 3; top: -8px; bottom: -8px; width: 2px; background: var(--text); transform: translateX(-1px); }.sprint-gauge-time::before { content: ''; position: absolute; top: -5px; left: -4px; border-right: 4px solid transparent; border-left: 4px solid transparent; border-bottom: 5px solid var(--text); }.sprint-gauge-labels { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }.sprint-progress-signal { margin: 0; font-size: 13px; }.sprint-progress-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; }.sprint-progress-breakdown div { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; }.sprint-progress-breakdown dt { color: var(--muted); }.sprint-progress-breakdown dd { margin: 0; font-weight: 700; }.cal-bar.sprint.cadence.is-highlighted { z-index: 2; border-color: color-mix(in srgb, var(--accent) 90%, white); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 0 12px color-mix(in srgb, var(--accent) 38%, transparent); }
 .standup-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); gap: 20px; }
 .standup-grid aside { padding-right: 18px; border-right: 1px solid var(--border); }
 .standup-modal.is-active-round { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: min(94vh, 900px); overflow: hidden; }
@@ -2940,6 +2966,7 @@ button.tab:hover:not(.active) {
 .standup-audio-library { display: grid; gap: 10px; margin-top: 2px; }.standup-audio-upload, .standup-audio-track { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }.standup-audio-track { padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }.standup-audio-track > span { display: grid; gap: 2px; min-width: 0; }.standup-audio-track small { color: var(--muted); font-size: 12px; }.standup-audio-track > div { margin-left: auto; }.standup-audio-config input[type='file'] { max-width: 100%; }
 .standup-note { transition: opacity .18s ease-out, padding .2s cubic-bezier(.2, .8, .2, 1); }.standup-note-drop-preview { animation: standup-note-drop-preview-in .18s cubic-bezier(.2, .8, .2, 1) both; }@keyframes standup-note-drop-preview-in { from { opacity: 0; transform: scaleY(.72) translateY(-3px); } to { opacity: 1; transform: scaleY(1) translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .standup-modal, .standup-overtime, .standup-fire-effect, .standup-fire-sheet, .standup-note { transition: none; }.standup-fire-sheet, .standup-fire-layer, .standup-fire-embers b, .standup-note-drop-preview { animation: none; }.standup-fire-embers b { display: none; } }
+@media (max-width: 900px) { .standup-opener { grid-template-columns: 1fr; }.standup-opener-progress { order: -1; } }
 @media (max-width: 700px) { .standup-backdrop { padding: 0; }.standup-modal, .standup-modal.is-active-round { display: block; width: 100vw; height: 100vh; max-height: none; overflow: auto; border-radius: 0; }.standup-modal.is-active-round .standup-grid, .standup-modal.is-active-round .standup-sidebar, .standup-round-content { overflow: visible; }.standup-grid, .post-standup-layout { grid-template-columns: 1fr; }.standup-grid aside { padding: 0 0 16px; border-right: 0; border-bottom: 1px solid var(--border); }.standup-intake { padding: 16px 0 0; border-top: 1px solid var(--border); border-left: 0; }.standup-current-epics { min-height: auto; }.standup-epic-scroll-region { max-height: none; overflow: visible; padding-right: 0; }.standup-bandwidth-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }.standup-ticket { grid-template-columns: 1fr; gap: 2px; }.standup-ticket-summary { -webkit-line-clamp: unset; }.standup-ticket-heading { align-items: baseline; } }
 .bandwidth-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
 .bandwidth-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }.bandwidth-day-placeholder { min-height: 84px; }
@@ -3108,3 +3135,22 @@ button.tab:hover:not(.active) {
   .increment-canvas-legend span:last-child { display: none; }
   .increment-planner-actions .draft-pill { width: 100%; }
 }
+
+/* Keep the Sprint Opener as one top-to-bottom orientation flow. */
+.standup-opener { grid-template-columns: minmax(0, 1fr); }
+.standup-opener-progress { padding: 0 2px; }
+.sprint-progress { padding: 0; }
+.sprint-gauge-time-label { position: relative; z-index: 2; width: max-content; max-width: 100%; margin-bottom: -4px; color: var(--text); font-size: 11px; font-weight: 700; transform: translateX(-50%); }
+.sprint-gauge { height: 16px; }
+.sprint-gauge-time { top: -5px; bottom: -5px; width: 3px; border-radius: 99px; box-shadow: 0 0 0 1px var(--panel); }
+.sprint-gauge-time::before { display: none; }
+.sprint-gauge-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: 12px; }
+.sprint-gauge-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sprint-legend-swatch { display: inline-block; width: 16px; height: 10px; border: 1px solid var(--border); border-radius: 3px; }
+.sprint-legend-swatch.done { background: var(--green); border-color: color-mix(in srgb, var(--green) 72%, var(--border)); }
+.sprint-legend-swatch.review { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 52%, var(--panel)), color-mix(in srgb, var(--accent) 52%, var(--panel)) 4px, color-mix(in srgb, var(--accent) 25%, var(--panel)) 4px, color-mix(in srgb, var(--accent) 25%, var(--panel)) 8px); }
+.sprint-legend-swatch.time { width: 3px; height: 14px; margin: -2px 6px -2px 7px; border: 0; border-radius: 99px; background: var(--text); box-shadow: 0 0 0 1px var(--panel); }
+.sprint-progress-signal { display: flex; align-items: center; gap: 7px; }
+.sprint-progress-signal.is-ahead { color: var(--green); }.sprint-progress-signal.is-close { color: var(--yellow); }.sprint-progress-signal.is-behind { color: var(--red); }.sprint-progress-signal strong { color: var(--text); }
+.sprint-progress-breakdown { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 700px) { .sprint-progress-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }.sprint-gauge-time-label { transform: translateX(-80%); } }

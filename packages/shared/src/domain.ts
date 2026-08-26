@@ -445,6 +445,32 @@ export interface StandupMemberTicketContext {
   truncated: boolean;
 }
 
+/** Jira lifecycle buckets used by the sprint opener's point calculation. */
+export type SprintProgressStatus = WorkItemStatus;
+export interface StandupSprintProgressItem {
+  key: string;
+  summary: string;
+  issueType: string;
+  status: string;
+  normalizedStatus: SprintProgressStatus;
+  points: number | null;
+  assigneeName: string | null;
+  url: string | null;
+}
+/** Complete, session-scoped Jira sprint snapshot. Aggregates are derived in the UI. */
+export interface StandupSprintProgressContext {
+  sprintId: string;
+  sprintName: string;
+  startDate: IsoDate | null;
+  endDate: IsoDate | null;
+  capturedAt: string;
+  source: 'jira' | 'snapshot';
+  freshness: 'fresh' | 'stale' | 'unavailable';
+  items: StandupSprintProgressItem[];
+  errorMessage: string | null;
+  truncated: boolean;
+}
+
 /** A current Jira request shown during the editable post-standup stage. */
 export interface IntakeRequest {
   key: string;

@@ -64,7 +64,7 @@ function PlannerPage({ dataset, source, dataSource, onReload, tab, teamId, selec
   if (tab === 'timeline') return <PortfolioCalendarPage dataset={dataset} projection={projection} selectedKeys={selectedKeys} today={today} editable={source === 'api'} onReload={onReload} />;
   if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
   if (tab === 'team') return <TeamPage dataset={dataset} teamId={teamId} editable={source === 'api'} onReload={onReload} onTeamChange={onTeamChange} />;
-  if (tab === 'standup') return <RunStandupPage dataset={dataset} teamId={teamId} editable={source === 'api'} onTeamChange={onTeamChange} />;
+  if (tab === 'standup') return <RunStandupPage dataset={dataset} projection={projection} teamId={teamId} editable={source === 'api'} onTeamChange={onTeamChange} />;
   if (tab === 'increments') return <Suspense fallback={<div className="panel" role="status">Loading increment canvas…</div>}><IncrementPlannerPage dataset={dataset} selectedKeys={selectedKeys} /></Suspense>;
   if (tab === 'dependencies') {
     const displayScope = makeDependencyScope(dataset, scope);

@@ -1,6 +1,6 @@
 /** Durable, focused persistence for the resumable standup workflow. */
 import { randomUUID } from 'node:crypto';
-import type { BandwidthCheckIn, StandupMemberTicketContext, StandupNote, StandupNoteMention, StandupNoteState, StandupParticipant, StandupParticipantDisposition, StandupSession, StandupPseudogroupsSetting } from '@ecp/shared';
+import type { BandwidthCheckIn, StandupMemberTicketContext, StandupSprintProgressContext, StandupNote, StandupNoteMention, StandupNoteState, StandupParticipant, StandupParticipantDisposition, StandupSession, StandupPseudogroupsSetting } from '@ecp/shared';
 import { SETTING_KEYS } from '@ecp/shared';
 import { deleteBandwidthCheckIn, upsertBandwidthCheckIn } from './bandwidth.js';
 import type { Db } from './database.js';
@@ -71,6 +71,21 @@ export function getMemberTicketContext(db: Db, sessionId: string, memberId: stri
   const row = db.prepare("SELECT payload_json FROM standup_context_snapshot WHERE session_id = ? AND scope_kind = 'member' AND scope_key = ?").get(sessionId, memberId) as any;
   if (!row) return null;
   try { return JSON.parse(row.payload_json) as StandupMemberTicketContext; } catch { return null; }
+}
+export function standupSprintProgressContext(db: Db, sessionId: string): { sprintId: string | null; sprintName: string | null; startDate: string | null; endDate: string | null } {
+  const row = db.prepare('SELECT s.sprint_id, s.sprint_name, p.start_date, p.end_date FROM standup_session s LEFT JOIN sprint p ON p.id = s.sprint_id WHERE s.id = ?').get(sessionId) as any;
+  if (!row) throw notFound(`Standup session ${sessionId} not found`);
+  return { sprintId: row.sprint_id ?? null, sprintName: row.sprint_name ?? null, startDate: row.start_date ?? null, endDate: row.end_date ?? null };
+}
+export function saveStandupSprintProgressContext(db: Db, sessionId: string, context: StandupSprintProgressContext): void {
+  getSessionRow(db, sessionId);
+  db.prepare(`INSERT INTO standup_context_snapshot (session_id, scope_kind, scope_key, captured_at, source, fetch_status, error_message, payload_json) VALUES (?, 'global', 'sprint-progress', ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, scope_kind, scope_key) DO UPDATE SET captured_at=excluded.captured_at, source=excluded.source, fetch_status=excluded.fetch_status, error_message=excluded.error_message, payload_json=excluded.payload_json`)
+    .run(sessionId, context.capturedAt, context.source, context.freshness, context.errorMessage, JSON.stringify(context));
+}
+export function getStandupSprintProgressContext(db: Db, sessionId: string): StandupSprintProgressContext | null {
+  const row = db.prepare("SELECT payload_json FROM standup_context_snapshot WHERE session_id = ? AND scope_kind = 'global' AND scope_key = 'sprint-progress'").get(sessionId) as any;
+  if (!row) return null; try { return JSON.parse(row.payload_json) as StandupSprintProgressContext; } catch { return null; }
 }
 
 /** Idempotently starts one local-calendar-day session and snapshots active roster order. */
