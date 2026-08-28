@@ -3015,8 +3015,9 @@ button.tab:hover:not(.active) {
 @media (max-width: 700px) { .bandwidth-day-editor { width: 100vw; height: 100vh; max-height: none; border-radius: 0; }.bandwidth-feeling-options { min-height: 44px; } }
 @media (max-width: 520px) { .bandwidth-member-row { grid-template-columns: 1fr; }.bandwidth-member-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }.bandwidth-member-note { grid-column: 1; } }
 
-/* --- Increment Planner prototype --- */
-.increment-planner { margin-top: 18px; }
+/* --- Increment Planner workspace --- */
+.app-increment-planner { max-width: none; }
+.increment-planner { margin-top: 12px; }
 .increment-planner-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 12px; }
 .increment-planner-heading h2 { margin: 0; font-size: 25px; letter-spacing: -.025em; }
 .increment-planner-heading > div:first-child > p:last-child { max-width: 720px; margin: 7px 0 0; color: var(--muted); font-size: 13px; }
@@ -3026,8 +3027,11 @@ button.tab:hover:not(.active) {
 .draft-pill, .count-pill, .external-pill, .zone-kind-pill { display: inline-flex; align-items: center; width: max-content; border: 1px solid var(--border); border-radius: 999px; white-space: nowrap; }
 .draft-pill { padding: 5px 9px; color: #ffd98a; border-color: var(--yellow-dim); background: color-mix(in srgb, var(--yellow) 11%, var(--panel)); font-size: 11px; }
 .increment-scope-note { margin-bottom: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--muted); background: color-mix(in srgb, var(--panel) 72%, transparent); font-size: 12px; }
-.increment-planner-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr) 240px; gap: 10px; align-items: stretch; }
-.increment-side-panel, .increment-canvas-shell { min-width: 0; height: 760px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); overflow: hidden; }
+.increment-planner-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr) 240px; gap: 10px; align-items: stretch; height: max(620px, calc(100dvh - 236px)); min-height: 0; }
+.increment-planner-grid.tray-collapsed { grid-template-columns: minmax(0, 1fr) 240px; }
+.increment-planner-grid.inspector-collapsed { grid-template-columns: 220px minmax(0, 1fr); }
+.increment-planner-grid.tray-collapsed.inspector-collapsed { grid-template-columns: minmax(0, 1fr); }
+.increment-side-panel, .increment-canvas-shell { min-width: 0; min-height: 0; height: 100%; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); overflow: hidden; }
 .increment-side-panel { padding: 13px; overflow-y: auto; }
 .increment-panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding-bottom: 11px; border-bottom: 1px solid var(--border); }
 .increment-panel-heading > div { display: grid; gap: 2px; }
@@ -3051,6 +3055,7 @@ button.tab:hover:not(.active) {
 .increment-canvas-legend { display: flex; gap: 14px; align-items: center; min-width: 0; padding: 9px 11px; border-bottom: 1px solid var(--border); color: var(--muted); background: var(--panel); font-size: 10px; overflow-x: auto; white-space: nowrap; }
 .increment-canvas-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .increment-canvas-legend span:last-child { margin-left: auto; }
+.increment-canvas-tools { display: inline-flex; align-items: center; gap: 9px; margin-left: auto; }
 .legend-line { width: 20px; height: 2px; background: #7182a3; }
 .legend-line.proposed { height: 0; border-top: 2px dashed var(--yellow); background: transparent; }
 .increment-canvas { min-height: 0; background: #101620; }
@@ -3060,6 +3065,14 @@ button.tab:hover:not(.active) {
 .increment-canvas .react-flow__node-increment { z-index: 0 !important; }
 .increment-canvas .react-flow__node-ticket { z-index: 2 !important; }
 .increment-canvas .react-flow__edge.selected path { stroke-width: 3; }
+.increment-canvas .increment-route-edge { fill: none; stroke: #7182a3; stroke-width: 1.6; }
+.increment-canvas .increment-route-edge.proposed { stroke: #e0a63a; stroke-width: 2; stroke-dasharray: 7 5; }
+.increment-canvas .increment-route-edge.is-selected { stroke: #b9cdf1; stroke-width: 3; }
+.increment-canvas .increment-route-edge.proposed.is-selected { stroke: #ffd98a; }
+.increment-edge-badge-wrap { overflow: visible; }
+.increment-edge-badge { display: inline-flex; align-items: center; justify-content: center; width: max-content; min-height: 22px; padding: 3px 6px; border: 1px solid #52627d; border-radius: 6px; color: #dce6f5; background: #181f2e; box-shadow: 0 3px 8px rgba(0,0,0,.26); font: 700 9px/1 inherit; white-space: nowrap; }
+.increment-edge-badge.proposed { border-color: #9a742d; color: #ffd98a; }
+@media (prefers-reduced-motion: reduce) { .increment-canvas .increment-route-edge { transition: none; } }
 .increment-canvas .react-flow__controls { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; box-shadow: none; }
 .increment-canvas .react-flow__controls-button { border-bottom-color: var(--border); color: var(--text); background: var(--panel); fill: currentColor; }
 .increment-canvas .react-flow__minimap { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
@@ -3088,6 +3101,7 @@ button.tab:hover:not(.active) {
 .increment-zone-objective { position: absolute; top: 51px; left: 12px; right: 12px; margin: 4px 0 0; overflow: hidden; color: #b6c1d2; font-size: 8px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .increment-zone-empty { position: absolute; inset: 67px 14px 18px; display: grid; place-items: center; border: 1px dashed rgba(255,255,255,.18); border-radius: 6px; color: #d5eab7; font-size: 12px; font-weight: 700; }
 .zone-connection-handle { width: 10px !important; height: 22px !important; border: 2px solid #d9e2f0 !important; border-radius: 4px !important; background: #5b8cff !important; }
+.zone-connection-handle-vertical { width: 22px !important; height: 10px !important; }
 .increment-zone-node.discovery .zone-connection-handle { background: #9d63c0 !important; }
 .increment-zone-node.critical .zone-connection-handle { background: #d65c52 !important; }
 .increment-zone-node.buffer .zone-connection-handle { background: #6d9638 !important; }
@@ -3118,20 +3132,28 @@ button.tab:hover:not(.active) {
 .increment-inspector dd { margin: 0; color: var(--text); }
 .edge-inspector p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .edge-inspector code { color: var(--text); font-size: 10px; }
+.increment-move-control { display: grid; gap: 5px; }
+.increment-move-control > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.increment-move-control select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 7px; padding: 7px 8px; color: var(--text); background: var(--panel-2); font: inherit; font-size: 12px; }
+.increment-planner.is-focused { position: fixed; z-index: 40; inset: 0; display: grid; grid-template-rows: auto 1fr; margin: 0; padding: 14px; background: var(--bg); }
+.increment-planner.is-focused .increment-planner-heading { margin: 0; }
+.increment-planner.is-focused .increment-scope-note { display: none; }
+.increment-planner.is-focused .increment-planner-grid { height: auto; min-height: 0; }
 
 @media (max-width: 1080px) {
   .increment-planner-heading { align-items: flex-start; flex-direction: column; }
   .increment-planner-actions { justify-content: flex-start; }
   .increment-planner-grid { grid-template-columns: 190px minmax(0, 1fr); }
-  .increment-inspector { grid-column: 1 / -1; width: 100%; height: auto; min-height: 180px; }
+  .increment-planner-grid:not(.inspector-collapsed) .increment-inspector { position: absolute; z-index: 8; top: 10px; right: 10px; width: min(340px, calc(100% - 20px)); height: calc(100% - 20px); box-shadow: 0 18px 42px rgba(0,0,0,.35); }
 }
 
 @media (max-width: 760px) {
-  .increment-planner-grid { grid-template-columns: 1fr; }
+  .increment-planner-grid, .increment-planner-grid.tray-collapsed, .increment-planner-grid.inspector-collapsed { grid-template-columns: 1fr; height: auto; }
   .increment-side-panel, .increment-canvas-shell { height: auto; }
   .ticket-tray { max-height: 310px; }
   .increment-canvas-shell { height: 620px; }
   .increment-inspector { grid-column: auto; }
+  .increment-canvas-tools { margin-left: 0; }
   .increment-canvas-legend span:last-child { display: none; }
   .increment-planner-actions .draft-pill { width: 100%; }
 }

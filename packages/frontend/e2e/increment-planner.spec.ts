@@ -15,9 +15,15 @@ test.describe('Increment Planner tab', () => {
     await expect(page.locator('.react-flow__node-increment')).toHaveCount(10);
     await expect(page.locator('.react-flow__node-sprint')).toHaveCount(4);
     await expect(page.locator('.react-flow__edge')).not.toHaveCount(0);
+    await expect(page.locator('.increment-route-edge')).toHaveCount(12);
+    await expect(page.getByText('blocks', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('proposed', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('jira-key-link-NF-2771')).toBeVisible();
 
-    await page.locator('.react-flow__node-increment').filter({ hasText: 'Login & Page Access' }).click();
+    await page.locator('.react-flow__edge-interaction').first().dispatchEvent('click');
+    await expect(page.locator('.increment-edge-badge')).toBeVisible();
+
+    await page.locator('.react-flow__node-increment').filter({ hasText: 'Login & Page Access' }).dispatchEvent('click');
     await expect(page.locator('.increment-inspector input').first()).toHaveValue('Login & Page Access');
     await page.getByRole('button', { name: 'Place' }).first().click();
     await expect(page.getByTestId('jira-key-link-NF-2772').last()).toBeVisible();
@@ -26,7 +32,7 @@ test.describe('Increment Planner tab', () => {
     await expect(page.locator('.react-flow__node-increment')).toHaveCount(11);
     await expect(page.locator('.increment-inspector input').first()).toHaveValue('New increment');
 
-    await page.getByRole('button', { name: 'Reset sample' }).click();
+    await page.getByRole('button', { name: 'Reset local sample' }).click();
     await expect(page.locator('.react-flow__node-increment')).toHaveCount(10);
   });
 
