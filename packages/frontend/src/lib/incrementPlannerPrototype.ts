@@ -1,4 +1,3 @@
-import ELK from 'elkjs/lib/elk.bundled.js';
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 
 export type IncrementKind = 'delivery' | 'discovery' | 'critical' | 'buffer';
@@ -31,6 +30,7 @@ export interface TicketNodeData extends Record<string, unknown>, PlannerTicket {
 
 export interface PlannerEdgeData extends Record<string, unknown> {
   sourceKind: 'jira' | 'proposed';
+  route?: import('./incrementPlannerEdgeRouting').RoutedIncrementEdge;
 }
 
 export type SprintNode = Node<SprintNodeData, 'sprint'>;
@@ -229,17 +229,13 @@ function incrementNode(fixture: IncrementFixture): IncrementNode {
 }
 
 function ticketNodes(fixture: IncrementFixture): TicketNode[] {
-  return fixture.tickets.map((item, index) => ({
+  return fixture.tickets.map((item) => ({
     id: `ticket-${item.key}`,
     type: 'ticket',
-    parentId: fixture.id,
-    extent: 'parent',
-    expandParent: true,
-    position: {
-      x: 18 + (index % fixture.columns) * 178,
-      y: 76 + Math.floor(index / fixture.columns) * 96,
-    },
-    data: item,
+    // Membership is semantic. Cards are rendered in absolute canvas space so a
+    // drag can be interpreted as a move command instead of a persisted offset.
+    position: { x: 0, y: 0 },
+    data: { ...item, incrementId: fixture.id },
     style: { width: 164, height: 80 },
     zIndex: 2,
   }));
@@ -268,63 +264,118 @@ export function makeSamplePlanner(): { nodes: PlannerNode[]; edges: PlannerEdge[
     id: `blocker-${index + 1}`,
     source,
     target,
-    type: 'smoothstep',
-    label: sourceKind === 'jira' ? 'blocks' : 'proposed',
+    type: 'incrementRoute',
     data: { sourceKind },
-    animated: sourceKind === 'proposed',
+    animated: false,
     deletable: sourceKind === 'proposed',
     reconnectable: sourceKind === 'proposed',
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-    style: sourceKind === 'proposed'
-      ? { stroke: '#e0a63a', strokeDasharray: '7 5', strokeWidth: 2 }
-      : { stroke: '#7182a3', strokeWidth: 1.6 },
-    labelStyle: { fill: sourceKind === 'proposed' ? '#ffd98a' : '#b9c4d8', fontSize: 10 },
-    labelBgStyle: { fill: '#181f2e', fillOpacity: 0.94 },
   }));
-  return { nodes, edges };
+  return { nodes: reflowPlanner(nodes, edges), edges };
 }
 
 export function nextTicketPosition(nodes: PlannerNode[], parentId: string): { x: number; y: number } {
-  const count = nodes.filter((node) => node.parentId === parentId).length;
+  const count = nodes.filter((node) => node.type === 'ticket' && ticketIncrementId(node) === parentId).length;
   return { x: 18 + (count % 2) * 178, y: 76 + Math.floor(count / 2) * 96 };
 }
 
-const elk = new ELK();
+const CARD_WIDTH = 164;
+const CARD_HEIGHT = 80;
+const CARD_GAP = 14;
+const CARD_INSET = 18;
+const HEADER_HEIGHT = 76;
+
+function ticketIncrementId(node: TicketNode): string | undefined {
+  return (node.data.incrementId as string | undefined) ?? node.parentId;
+}
 
 /**
- * Runs ELK independently inside each sprint column. Cross-sprint blocker edges
- * stay visible, while the sample's capacity-band meaning remains intact.
+ * Rebuilds presentation geometry from planner meaning. This deliberately
+ * discards prior x/y and container dimensions: membership, sprint and order
+ * are the only inputs that survive a layout pass.
  */
-export async function arrangeIncrementsBySprint(nodes: PlannerNode[], edges: PlannerEdge[]): Promise<PlannerNode[]> {
-  const arranged = new Map<string, { x: number; y: number }>();
-  for (const column of sprintColumns) {
-    const columnNodes = nodes.filter((node): node is IncrementNode => node.type === 'increment' && node.data.sprint === column.label);
-    if (columnNodes.length === 0) continue;
-    const nodeIds = new Set(columnNodes.map((node) => node.id));
-    const layout = await elk.layout({
-      id: `column-${column.label}`,
-      layoutOptions: {
-        'elk.algorithm': 'layered',
-        'elk.direction': 'DOWN',
-        'elk.spacing.nodeNode': '28',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '34',
-      },
-      children: columnNodes.map((node) => ({
-        id: node.id,
-        width: typeof node.style?.width === 'number' ? node.style.width : 380,
-        height: typeof node.style?.height === 'number' ? node.style.height : 300,
-      })),
-      edges: edges
-        .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
-        .map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
-    });
-    const maxWidth = Math.max(...columnNodes.map((node) => typeof node.style?.width === 'number' ? node.style.width : 380));
-    for (const child of layout.children ?? []) {
-      arranged.set(child.id, {
-        x: column.x + Math.max(0, (column.width - maxWidth) / 2) + (child.x ?? 0),
-        y: 120 + (child.y ?? 0),
-      });
+export function reflowPlanner(nodes: PlannerNode[], edges: PlannerEdge[]): PlannerNode[] {
+  const incrementsById = new Map(nodes.filter((node): node is IncrementNode => node.type === 'increment').map((node) => [node.id, node]));
+  const ticketsByIncrement = new Map<string, TicketNode[]>();
+  for (const node of nodes) {
+    if (node.type !== 'ticket') continue;
+    const incrementId = ticketIncrementId(node);
+    if (!incrementId || !incrementsById.has(incrementId)) continue;
+    const items = ticketsByIncrement.get(incrementId) ?? [];
+    items.push(node);
+    ticketsByIncrement.set(incrementId, items);
+  }
+
+  const orderedSprints = [...sprintColumns.map((column) => column.label), ...[...incrementsById.values()].map((node) => node.data.sprint)]
+    .filter((sprint, index, values) => values.indexOf(sprint) === index);
+  let nextX = 0;
+  const lane = new Map<string, { x: number; width: number; load: number; capacity: number }>();
+  for (const sprint of orderedSprints) {
+    const items = [...incrementsById.values()].filter((node) => node.data.sprint === sprint);
+    const width = sprint === 'UAT' ? 390 : Math.max(620, Math.min(980, Math.max(1, items.length) * 410));
+    const load = items.reduce((sum, node) => sum + (ticketsByIncrement.get(node.id) ?? []).reduce((points, ticket) => points + ticket.data.points, 0), 0);
+    lane.set(sprint, { x: nextX, width, load, capacity: 37.5 });
+    nextX += width + 80;
+  }
+
+  const dependencyRank = new Map<string, number>();
+  const incoming = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (incrementsById.has(edge.source) && incrementsById.has(edge.target)) {
+      incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source]);
     }
   }
-  return nodes.map((node) => arranged.has(node.id) ? { ...node, position: arranged.get(node.id)! } : node);
+  const rank = (id: string, path = new Set<string>()): number => {
+    if (dependencyRank.has(id)) return dependencyRank.get(id)!;
+    if (path.has(id)) return 0; // cycles remain visible; they do not make layout unstable.
+    const nextPath = new Set(path); nextPath.add(id);
+    const value = Math.max(0, ...(incoming.get(id) ?? []).map((source) => rank(source, nextPath) + 1));
+    dependencyRank.set(id, value);
+    return value;
+  };
+  for (const id of incrementsById.keys()) rank(id);
+
+  const positioned = new Map<string, { x: number; y: number; width: number; height: number }>();
+  for (const sprint of orderedSprints) {
+    const spec = lane.get(sprint)!;
+    const items = [...incrementsById.values()]
+      .filter((node) => node.data.sprint === sprint)
+      .sort((a, b) => rank(a.id) - rank(b.id) || a.data.number - b.data.number || a.id.localeCompare(b.id));
+    // Rank establishes deterministic dependency-aware order. A sprint lane is
+    // then packed vertically as a single flow so rank changes can never make
+    // independently sized increment containers overlap.
+    let nextY = 120;
+    for (const increment of items) {
+      const ticketCount = (ticketsByIncrement.get(increment.id) ?? []).length;
+      const columns = Math.max(1, Math.min(3, Math.floor((Math.min(spec.width - CARD_INSET * 2, 560) + CARD_GAP) / (CARD_WIDTH + CARD_GAP))));
+      const width = Math.max(300, columns * CARD_WIDTH + (columns - 1) * CARD_GAP + CARD_INSET * 2);
+      const height = Math.max(170, HEADER_HEIGHT + Math.ceil(ticketCount / columns) * (CARD_HEIGHT + CARD_GAP) + CARD_INSET);
+      positioned.set(increment.id, { x: spec.x + Math.max(16, (spec.width - width) / 2), y: nextY, width, height });
+      nextY += height + 58;
+    }
+  }
+
+  return nodes.map((node): PlannerNode => {
+    if (node.type === 'sprint') {
+      const spec = lane.get(node.data.label);
+      return spec ? { ...node, position: { x: spec.x, y: 0 }, data: { ...node.data, load: spec.load, capacity: spec.capacity }, style: { width: spec.width, height: 80 } } : node;
+    }
+    if (node.type === 'increment') {
+      const geometry = positioned.get(node.id)!;
+      const tickets = ticketsByIncrement.get(node.id) ?? [];
+      return { ...node, position: { x: geometry.x, y: geometry.y }, data: { ...node.data, points: tickets.reduce((sum, ticket) => sum + ticket.data.points, 0), ticketCount: tickets.length }, style: { width: geometry.width, height: geometry.height } };
+    }
+    const incrementId = ticketIncrementId(node);
+    const parent = incrementId ? positioned.get(incrementId) : undefined;
+    const siblings = incrementId ? ticketsByIncrement.get(incrementId) ?? [] : [];
+    const index = siblings.findIndex((ticket) => ticket.id === node.id);
+    if (!parent || index < 0) return { ...node, parentId: undefined, extent: undefined, expandParent: undefined };
+    const columns = Math.max(1, Math.floor((parent.width - CARD_INSET * 2 + CARD_GAP) / (CARD_WIDTH + CARD_GAP)));
+    return { ...node, parentId: undefined, extent: undefined, expandParent: undefined, position: { x: parent.x + CARD_INSET + (index % columns) * (CARD_WIDTH + CARD_GAP), y: parent.y + HEADER_HEIGHT + Math.floor(index / columns) * (CARD_HEIGHT + CARD_GAP) }, data: { ...node.data, incrementId }, style: { width: CARD_WIDTH, height: CARD_HEIGHT } };
+  });
+}
+
+/** Backward-compatible name used by the prototype's existing controls. */
+export async function arrangeIncrementsBySprint(nodes: PlannerNode[], edges: PlannerEdge[]): Promise<PlannerNode[]> {
+  return reflowPlanner(nodes, edges);
 }
