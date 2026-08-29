@@ -467,6 +467,8 @@ export interface EngineerSprintOutput {
   adjustedCapacity: number | null;
   donePoints: number;
   inReviewPoints: number;
+  inProgressPoints: number;
+  toDoPoints: number;
   unestimatedDoneOrReviewItems: number;
   matchedSprintItems: number;
   availability: { ptoWorkingDays: number; oncallWorkingDays: number; velocityOverrideWorkingDays: number };

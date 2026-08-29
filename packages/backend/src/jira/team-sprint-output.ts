@@ -30,7 +30,7 @@ export async function getTeamSprintOutput(client: JiraClient | undefined, data: 
   const members = data.members.filter((member) => member.teamId === teamId && member.active).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const withCapacities = (sprint: SprintWindow | null): EngineerSprintOutput[] => members.map((member) => {
     const context = sprint ? buildCapacityContext({ members: [member], pto: data.pto.filter((item) => item.memberId === member.id), oncall: data.oncall.filter((item) => item.memberId === member.id), velocityOverrides: data.velocityOverrides.filter((item) => item.memberId === member.id), oncallMultiplier: numberSetting(data.settings, SETTING_KEYS.ONCALL_MULTIPLIER, ENGINE_DEFAULTS.ONCALL_MULTIPLIER) }) : null;
-    return { memberId: member.id, baseVelocity: member.baseVelocity, adjustedCapacity: sprint && context ? sprintCapacity(sprint, context) : null, donePoints: 0, inReviewPoints: 0, unestimatedDoneOrReviewItems: 0, matchedSprintItems: 0, availability: sprint ? availability(member.id, sprint, data) : { ptoWorkingDays: 0, oncallWorkingDays: 0, velocityOverrideWorkingDays: 0 }, jiraLinked: Boolean(member.jiraAccountId) };
+    return { memberId: member.id, baseVelocity: member.baseVelocity, adjustedCapacity: sprint && context ? sprintCapacity(sprint, context) : null, donePoints: 0, inReviewPoints: 0, inProgressPoints: 0, toDoPoints: 0, unestimatedDoneOrReviewItems: 0, matchedSprintItems: 0, availability: sprint ? availability(member.id, sprint, data) : { ptoWorkingDays: 0, oncallWorkingDays: 0, velocityOverrideWorkingDays: 0 }, jiraLinked: Boolean(member.jiraAccountId) };
   });
   if (!client) { result.engineers = withCapacities(null); result.errorMessage = 'Jira is unavailable.'; return result; }
   const project = setting(data.settings, SETTING_KEYS.JIRA_PROJECT_KEY);
@@ -54,12 +54,15 @@ export async function getTeamSprintOutput(client: JiraClient | undefined, data: 
     result.freshness = 'fresh';
     const byAccount = new Map(members.filter((member) => member.jiraAccountId).map((member) => [member.jiraAccountId!, result.engineers.find((output) => output.memberId === member.id)!]));
     for (const item of context.items) {
-      if (item.normalizedStatus !== 'Done' && item.normalizedStatus !== 'In Review') continue;
+      const recognized = item.normalizedStatus === 'Done' || item.normalizedStatus === 'In Review';
       const output = item.assigneeAccountId ? byAccount.get(item.assigneeAccountId) : undefined;
-      if (!output) { result.unattributed.itemCount += 1; if (item.points === null) result.unattributed.unestimatedDoneOrReviewItems += 1; else result.unattributed.estimatedDoneOrReviewPoints += item.points; continue; }
+      if (!output) { if (recognized) { result.unattributed.itemCount += 1; if (item.points === null) result.unattributed.unestimatedDoneOrReviewItems += 1; else result.unattributed.estimatedDoneOrReviewPoints += item.points; } continue; }
       output.matchedSprintItems += 1;
-      if (item.points === null) { output.unestimatedDoneOrReviewItems += 1; continue; }
-      if (item.normalizedStatus === 'Done') output.donePoints += item.points; else output.inReviewPoints += item.points;
+      if (item.points === null) { if (recognized) output.unestimatedDoneOrReviewItems += 1; continue; }
+      if (item.normalizedStatus === 'Done') output.donePoints += item.points;
+      else if (item.normalizedStatus === 'In Review') output.inReviewPoints += item.points;
+      else if (item.normalizedStatus === 'In Progress') output.inProgressPoints += item.points;
+      else output.toDoPoints += item.points;
     }
     return result;
   } catch { result.engineers = withCapacities(null); result.errorMessage = 'Unable to refresh Jira sprint output.'; return result; }
