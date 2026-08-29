@@ -476,6 +476,8 @@ export interface EngineerSprintOutput {
 /** Read-only, live Jira aggregation used by Team's Sprint output view. */
 export interface TeamSprintOutput {
   teamId: string;
+  /** Configured Jira board URL; the UI adds an engineer's stable account ID. */
+  jiraBoardUrl: string | null;
   sprint: { id: string; name: string; startDate: IsoDate | null; endDate: IsoDate | null; dateSource: 'jira' | 'stored' | 'unavailable' } | null;
   capturedAt: string;
   freshness: 'fresh' | 'unavailable';

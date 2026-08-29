@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildServer } from '../src/server.js';
+import { loadConfig } from '../src/config.js';
 import { FakeJiraClient } from '../src/jira/fake-client.js';
 
 let app: FastifyInstance | undefined;
@@ -84,7 +85,7 @@ describe('GET /api/teams/:teamId/current-sprint-output', () => {
     jira.setSprints(1, [{ id: 21, name: 'Current sprint', state: 'active', startDate: '2026-08-17T09:00:00Z', endDate: '2026-08-21T17:00:00Z' }]);
     await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Done', status: { name: 'Done', statusCategory: { key: 'done', name: 'Done' } }, assignee: { accountId: 'ada', displayName: 'Ada' }, customfield_10016: 5, customfield_10020: [{ id: 21 }] } });
     await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Review', status: { name: 'Ready for review', statusCategory: { key: 'indeterminate', name: 'In Progress' } }, assignee: { accountId: 'ada', displayName: 'Ada' }, customfield_10016: 3, customfield_10020: [{ id: 21 }] } });
-    app = await buildServer({ dbPath: ':memory:', dataSource: 'synthetic', seedIfEmpty: true }, { jiraClient: jira });
+    app = await buildServer({ dbPath: ':memory:', dataSource: 'synthetic', seedIfEmpty: true, jira: { ...loadConfig().jira, baseUrl: 'https://chewyinc.atlassian.net' } }, { jiraClient: jira });
     await app.inject({ method: 'PUT', url: '/api/members/M1', payload: { jiraAccountId: 'ada' } });
     await app.inject({ method: 'PATCH', url: '/api/settings', payload: { jira_project_key: 'CKT', jira_board_id: '1', jira_story_points_field: 'customfield_10016' } });
     await app.inject({ method: 'POST', url: '/api/pto', payload: { memberId: 'M1', startDate: '2026-08-17', endDate: '2026-08-17' } });
@@ -93,6 +94,7 @@ describe('GET /api/teams/:teamId/current-sprint-output', () => {
     const ada = response.json().engineers.find((engineer: { memberId: string }) => engineer.memberId === 'M1');
     expect(ada).toMatchObject({ donePoints: 5, inReviewPoints: 3, jiraLinked: true, availability: { ptoWorkingDays: 1 } });
     expect(ada.adjustedCapacity).toBeLessThan(ada.baseVelocity);
+    expect(response.json().jiraBoardUrl).toBe('https://chewyinc.atlassian.net/jira/software/c/projects/CKT/boards/1');
   });
 });
 

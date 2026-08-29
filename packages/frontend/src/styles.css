@@ -2880,6 +2880,8 @@ button.tab:hover:not(.active) {
 .sprint-output > .hint, .sprint-output > .sprint-output-warning { margin: 0; }
 .sprint-output-row { display: grid; gap: 7px; padding: 11px 0; border-top: 1px solid var(--border); }
 .sprint-output-member { display: flex; align-items: center; gap: 8px; }
+.sprint-output-member-link { color: var(--text); font-weight: 700; text-decoration: none; }
+.sprint-output-member-link:hover { color: var(--accent); text-decoration: underline; }
 .sprint-output-totals { font-size: 13px; }
 .sprint-output-gauge { position: relative; height: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 999px; background: var(--panel-2); }
 .sprint-output-done, .sprint-output-review { position: absolute; top: 0; bottom: 0; }

@@ -15,7 +15,7 @@ const numberSetting = (settings: Setting[], key: string, fallback: number): numb
 };
 
 function base(teamId: string, data: DomainDataset): TeamSprintOutput {
-  return { teamId, sprint: null, capturedAt: new Date().toISOString(), freshness: 'unavailable', truncated: false, errorMessage: null, engineers: [], unattributed: { itemCount: 0, estimatedDoneOrReviewPoints: 0, unestimatedDoneOrReviewItems: 0 } };
+  return { teamId, jiraBoardUrl: null, sprint: null, capturedAt: new Date().toISOString(), freshness: 'unavailable', truncated: false, errorMessage: null, engineers: [], unattributed: { itemCount: 0, estimatedDoneOrReviewPoints: 0, unestimatedDoneOrReviewItems: 0 } };
 }
 
 function availability(memberId: string, sprint: SprintWindow, data: DomainDataset) {
@@ -40,6 +40,7 @@ export async function getTeamSprintOutput(client: JiraClient | undefined, data: 
     const configured = setting(data.settings, SETTING_KEYS.JIRA_BOARD_ID);
     const boardId = configured && /^\d+$/.test(configured) ? Number(configured) : (await client.listBoards(project))[0]?.id;
     if (boardId == null) { result.engineers = withCapacities(null); result.errorMessage = 'No Agile board is configured for this project.'; return result; }
+    result.jiraBoardUrl = jiraBaseUrl ? `${jiraBaseUrl.replace(/\/+$/, '')}/jira/software/c/projects/${encodeURIComponent(project)}/boards/${boardId}` : null;
     const active = (await client.listSprints(boardId)).find((sprint) => sprint.state === 'active');
     if (!active) { result.engineers = withCapacities(null); result.errorMessage = 'This board has no active sprint.'; return result; }
     let startDate = iso(active.startDate); let endDate = iso(active.endDate); let dateSource: 'jira' | 'stored' | 'unavailable' = startDate && endDate ? 'jira' : 'unavailable';
