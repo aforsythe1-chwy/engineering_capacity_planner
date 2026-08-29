@@ -275,6 +275,12 @@ export class FakeJiraClient implements JiraClient {
       } else if ((m = /^labels\s*=\s*(.+)$/i.exec(clause))) {
         const label = unquote(m[1]!);
         preds.push((i) => (i.fields.labels ?? []).includes(label));
+      } else if ((m = /^sprint\s*=\s*(\d+)$/i.exec(clause))) {
+        const sprintId = m[1]!;
+        preds.push((i) => Object.values(i.fields).some((value) => {
+          const values = Array.isArray(value) ? value : [value];
+          return values.some((entry) => typeof entry === 'object' && entry !== null && String((entry as { id?: unknown }).id) === sprintId);
+        }));
       } else if (/^statusCategory\s*!=\s*Done$/i.test(clause)) {
         preds.push((i) => i.fields.status?.statusCategory?.key !== 'done' && i.fields.status?.statusCategory?.name !== 'Done');
       } else {
