@@ -360,4 +360,39 @@ describe('reconcileDataset', () => {
     };
     expect(reconcileDataset(current, incoming).merged.bandwidthCheckIns).toEqual(current.bandwidthCheckIns);
   });
+
+  it('keeps archived history without duplicating work that moved to an active epic', () => {
+    const current: DomainDataset = {
+      ...empty(),
+      teams: [team('T', '2026-01-27')],
+      epics: [
+        { key: 'OLD', title: 'Leaving scope', teamId: 'T' },
+        { key: 'ACTIVE', title: 'Still active', teamId: 'T' },
+      ],
+      stories: [
+        { key: 'OLD-UNGROUPED', epicKey: 'OLD', title: 'Ungrouped' },
+        { key: 'ACTIVE-UNGROUPED', epicKey: 'ACTIVE', title: 'Ungrouped' },
+      ],
+      workItems: [
+        { ...workItem('MOVED-1', 'To Do'), storyKey: 'OLD-UNGROUPED' },
+        { ...workItem('HISTORY-1', 'Done'), storyKey: 'OLD-UNGROUPED' },
+      ],
+    };
+    const incoming: DomainDataset = {
+      ...empty(),
+      teams: [team('T', '2026-01-27')],
+      epics: [{ key: 'ACTIVE', title: 'Still active', teamId: 'T' }],
+      stories: [{ key: 'ACTIVE-UNGROUPED', epicKey: 'ACTIVE', title: 'Ungrouped' }],
+      workItems: [{ ...workItem('MOVED-1', 'To Do'), storyKey: 'ACTIVE-UNGROUPED' }],
+    };
+
+    const { merged, summary } = reconcileDataset(current, incoming);
+
+    expect(summary.epicsArchived).toBe(1);
+    expect(merged.epics.find((epic) => epic.key === 'OLD')).toMatchObject({ active: false });
+    expect(merged.workItems.filter((item) => item.key === 'MOVED-1')).toEqual([
+      expect.objectContaining({ storyKey: 'ACTIVE-UNGROUPED' }),
+    ]);
+    expect(merged.workItems).toContainEqual(expect.objectContaining({ key: 'HISTORY-1', storyKey: 'OLD-UNGROUPED' }));
+  });
 });

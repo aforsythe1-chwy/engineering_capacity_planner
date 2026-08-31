@@ -1,15 +1,22 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BandwidthCheckIn, BandwidthDay, BandwidthFeeling, DomainDataset } from '@ecp/shared';
 import * as api from '../data/api';
 import { buildAvailabilityEntries, type AvailabilityEntry, type AvailabilityKind } from '../lib/availability';
+import { fuzzyScore } from '../lib/fuzzySearch';
 import { memberColorMap } from '../lib/memberColors';
 import { AvailabilityCalendar } from './AvailabilityCalendar';
 import { AvailabilityList } from './AvailabilityList';
 import { AddAvailabilityModal, type NewAvailability } from './AddAvailabilityModal';
 import { BandwidthDayEditor } from './BandwidthDayEditor';
 import { EngineerSprintOutput } from './EngineerSprintOutput';
+import { Typeahead, type TypeaheadOption } from './Typeahead';
 
 type TeamView = 'bandwidth' | 'availability' | 'sprint-output';
+const teamViews: Array<{ value: TeamView; label: string }> = [
+  { value: 'bandwidth', label: 'Bandwidth' },
+  { value: 'availability', label: 'Availability' },
+  { value: 'sprint-output', label: 'Sprint output' },
+];
 const feelings: Array<{ value: BandwidthFeeling; label: string; description: string }> = [
   { value: 'red', label: 'Red', description: 'Drowning' },
   { value: 'yellow', label: 'Yellow', description: "Things are getting overloaded, but I'm managing" },
@@ -59,9 +66,14 @@ export function TeamPage({ dataset, teamId, editable, onReload, onTeamChange }: 
   const team = dataset.teams.find((candidate) => candidate.id === teamId) ?? dataset.teams[0] ?? null;
   const members = useMemo(() => team ? dataset.members.filter((member) => member.teamId === team.id) : [], [dataset.members, team]);
   const activeMembers = useMemo(() => members.filter((member) => member.active), [members]);
-  const visibleMembers = memberId ? members.filter((member) => member.id === memberId) : members;
-  const visibleCheckIns = useMemo(() => memberId ? checkIns.filter((checkIn) => checkIn.memberId === memberId) : checkIns, [checkIns, memberId]);
+  const validMemberId = memberId && activeMembers.some((member) => member.id === memberId) ? memberId : '';
+  const visibleMembers = validMemberId ? members.filter((member) => member.id === validMemberId) : members;
+  const visibleCheckIns = useMemo(() => validMemberId ? checkIns.filter((checkIn) => checkIn.memberId === validMemberId) : checkIns, [checkIns, validMemberId]);
   const colors = useMemo(() => memberColorMap(members), [members]);
+
+  useEffect(() => {
+    if (memberId !== validMemberId) setMemberId(validMemberId);
+  }, [memberId, validMemberId]);
 
   useEffect(() => {
     if (!team) return;
@@ -97,63 +109,67 @@ export function TeamPage({ dataset, teamId, editable, onReload, onTeamChange }: 
 
   if (!team) return <main className="team-page"><section className="panel">No team is configured yet.</section></main>;
   return <main className="team-page" data-testid="team-page">
-    <section className="panel team-header">
-      <div><h2>Team</h2><p className="hint">Calendar analysis for availability and self-reported workload. Epic filters do not change this view.</p></div>
-      <div className="team-controls">
-        {dataset.teams.length > 1 && <label className="control"><span>Team</span><select value={team.id} onChange={(event) => onTeamChange(event.target.value)}>{dataset.teams.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>}
-        <TeamMemberPicker members={activeMembers} value={memberId} onChange={setMemberId} />
-        <div className="segmented team-view-toggle" role="tablist" aria-label="Team data view">
-          {(['bandwidth', 'availability', 'sprint-output'] as TeamView[]).map((item) => <button key={item} type="button" role="tab" aria-selected={view === item} className={`segment${view === item ? ' active' : ''}`} onClick={() => setView(item)}>{item === 'bandwidth' ? 'Bandwidth' : item === 'availability' ? 'Availability' : 'Sprint output'}</button>)}
-        </div>
-      </div>
-    </section>
+    <TeamWorkspaceHeading teams={dataset.teams} teamId={team.id} onTeamChange={onTeamChange} />
+    <TeamAnalysisTabs value={view} onChange={setView} />
+    <TeamScopeToolbar members={activeMembers} value={validMemberId} onChange={setMemberId} />
     {error && <div className="panel config-error" role="alert">⚠ {error}</div>}
-    {view === 'bandwidth'
+    <section className="team-analysis-panel" role="tabpanel" id={`team-analysis-panel-${view}`} aria-labelledby={`team-analysis-tab-${view}`}>
+      {view === 'bandwidth'
       ? <><BandwidthView checkIns={visibleCheckIns} month={month} setMonth={setMonth} loading={loading} onSelectDate={(date, trigger) => { bandwidthTriggerRef.current = trigger; setSelectedBandwidthDate(date); }} />
         {selectedBandwidthDate && <BandwidthDayEditor teamId={team.id} date={selectedBandwidthDate} members={members} editable={editable} initialCheckIns={checkIns.filter((entry) => entry.date === selectedBandwidthDate)} colors={colors} onClose={closeBandwidthEditor} onSaved={saveBandwidthDay} />}
       </>
-      : view === 'sprint-output' ? <EngineerSprintOutput teamId={team.id} members={activeMembers} selectedMemberId={memberId} colors={colors} connected={editable} /> : <section className="panel"><div className="section-title"><div><h2>Availability — {monthLabel(month)}</h2><span className="hint">PTO, on-call, and velocity overrides</span></div><div className="section-actions"><button type="button" className="btn" onClick={() => setMonth(addMonths(month, -1))}>Previous</button><button type="button" className="btn" onClick={() => setMonth(monthOf(localToday()))}>Today</button><button type="button" className="btn" onClick={() => setMonth(addMonths(month, 1))}>Next</button><button type="button" className="btn primary" data-testid="avail-add" disabled={!editable} onClick={() => setAddingAvailability(true)}>＋ Add</button></div></div><div className="subtabs" role="tablist" aria-label="Availability presentation"><button className={`subtab${availabilityView === 'calendar' ? ' active' : ''}`} type="button" data-testid="avail-view-calendar" onClick={() => setAvailabilityView('calendar')}>Calendar</button><button className={`subtab${availabilityView === 'list' ? ' active' : ''}`} type="button" data-testid="avail-view-list" onClick={() => setAvailabilityView('list')}>List</button></div>{availabilityView === 'calendar' ? <AvailabilityCalendar entries={availabilityEntries} disabled={!editable} onDelete={deleteAvailability} /> : <AvailabilityList entries={availabilityEntries} disabled={!editable} onDelete={deleteAvailability} />}{addingAvailability && <AddAvailabilityModal members={activeMembers} onClose={() => setAddingAvailability(false)} onAdd={addAvailability} />}</section>}
+      : view === 'sprint-output' ? <EngineerSprintOutput teamId={team.id} members={activeMembers} selectedMemberId={validMemberId} colors={colors} connected={editable} /> : <TeamAvailabilityPanel month={month} onMonthChange={setMonth} view={availabilityView} onViewChange={setAvailabilityView} entries={availabilityEntries} editable={editable} onDelete={deleteAvailability} members={activeMembers} adding={addingAvailability} onStartAdd={() => setAddingAvailability(true)} onCloseAdd={() => setAddingAvailability(false)} onAdd={addAvailability} />}
+    </section>
   </main>;
 }
 
+function TeamWorkspaceHeading({ teams, teamId, onTeamChange }: { teams: DomainDataset['teams']; teamId: string; onTeamChange: (teamId: string) => void }) {
+  return <section className="team-workspace-heading">
+    <div><h2>Team</h2><p className="hint">Calendar analysis for team-owned signals. Epic filters do not change this view.</p></div>
+    {teams.length > 1 && <label className="control team-selector"><span>Team</span><select value={teamId} onChange={(event) => onTeamChange(event.target.value)}>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>}
+  </section>;
+}
+
+function TeamAnalysisTabs({ value, onChange }: { value: TeamView; onChange: (view: TeamView) => void }) {
+  const activate = (next: TeamView) => { onChange(next); requestAnimationFrame(() => document.getElementById(`team-analysis-tab-${next}`)?.focus()); };
+  return <div className="subtabs team-analysis-tabs" role="tablist" aria-label="Team analysis">
+    {teamViews.map(({ value: item, label }, index) => <button key={item} id={`team-analysis-tab-${item}`} type="button" role="tab" aria-selected={value === item} aria-controls={`team-analysis-panel-${item}`} tabIndex={value === item ? 0 : -1} className={`subtab${value === item ? ' active' : ''}`} onClick={() => onChange(item)} onKeyDown={(event) => {
+      const move = (nextIndex: number) => activate(teamViews[(nextIndex + teamViews.length) % teamViews.length]!.value);
+      if (event.key === 'ArrowRight') { event.preventDefault(); move(index + 1); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); move(index - 1); }
+      else if (event.key === 'Home') { event.preventDefault(); move(0); }
+      else if (event.key === 'End') { event.preventDefault(); move(teamViews.length - 1); }
+    }}>{label}</button>)}
+  </div>;
+}
+
+function TeamScopeToolbar({ members, value, onChange }: { members: DomainDataset['members']; value: string; onChange: (memberId: string) => void }) {
+  return <section className="team-scope-toolbar" aria-label="Team analysis scope"><TeamMemberPicker members={members} value={value} onChange={onChange} /></section>;
+}
+
+const allEngineersOption = { id: 'all-engineers', label: 'All engineers' } satisfies TypeaheadOption;
+
 function TeamMemberPicker({ members, value, onChange }: { members: DomainDataset['members']; value: string; onChange: (memberId: string) => void }) {
-  const listboxId = useId();
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const selected = members.find((member) => member.id === value);
+  const options = useMemo(() => [allEngineersOption, ...members.slice().sort((a, b) => a.name.localeCompare(b.name)).map((member) => ({ id: member.id, label: member.name, imageUrl: member.avatarUrl }))], [members]);
+  const selectedLabel = options.find((option) => option.id === (value || allEngineersOption.id))?.label ?? allEngineersOption.label;
+  const [inputValue, setInputValue] = useState(selectedLabel);
+  const committedValue = useRef(value);
+  const search = useCallback(async (query: string) => {
+    const rankedMembers = options.slice(1).map((option) => ({ option, score: fuzzyScore(option.label, query) })).filter((entry) => entry.score !== null).sort((a, b) => a.score! - b.score! || a.option.label.localeCompare(b.option.label)).map(({ option }) => option);
+    return [allEngineersOption, ...rankedMembers];
+  }, [options]);
 
   useEffect(() => {
-    if (!open) return;
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', closeOnOutsideClick);
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
-  }, [open]);
+    if (committedValue.current !== value) { committedValue.current = value; setInputValue(selectedLabel); }
+  }, [selectedLabel, value]);
 
-  const select = (memberId: string) => {
-    onChange(memberId);
-    setOpen(false);
-    triggerRef.current?.focus();
-  };
-  const focusOption = (index: number) => optionRefs.current[(index + members.length + 1) % (members.length + 1)]?.focus();
+  return <label className="control team-member-picker"><span>Engineer</span><Typeahead value={inputValue} inputType="search" placeholder="Search engineers" selectedId={value || allEngineersOption.id} search={search} searchOnEmpty searchAllOnFocus selectValueOnFocus debounceMs={0} showLoading={false} onChange={(next) => { committedValue.current = ''; setInputValue(next); onChange(''); }} onSelect={(option) => { const memberId = option.id === allEngineersOption.id ? '' : option.id; committedValue.current = memberId; setInputValue(option.label); onChange(memberId); }} onDismiss={() => setInputValue(selectedLabel)} /></label>;
+}
 
-  return <div className="member-picker" ref={containerRef}>
-    <span className="member-picker-label">Engineer</span>
-    <button ref={triggerRef} className="member-picker-trigger" type="button" aria-haspopup="listbox" aria-expanded={open} aria-controls={listboxId} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => {
-      if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); requestAnimationFrame(() => focusOption(value ? Math.max(0, members.findIndex((member) => member.id === value)) + 1 : 0)); }
-      if (event.key === 'Escape') setOpen(false);
-    }}><span>{selected?.name ?? 'All team'}</span><span className="member-picker-chevron" aria-hidden="true">⌄</span></button>
-    {open && <div id={listboxId} className="member-picker-menu" role="listbox" aria-label="Engineer">{[{ id: '', name: 'All team' }, ...members].map((member, index) => <button ref={(element) => { optionRefs.current[index] = element; }} key={member.id || 'all'} type="button" role="option" aria-selected={member.id === value} className={`member-picker-option${member.id === value ? ' is-selected' : ''}`} onClick={() => select(member.id)} onKeyDown={(event) => {
-      if (event.key === 'ArrowDown') { event.preventDefault(); focusOption(Math.min(index + 1, members.length)); }
-      if (event.key === 'ArrowUp') { event.preventDefault(); index === 0 ? triggerRef.current?.focus() : focusOption(index - 1); }
-      if (event.key === 'Home') { event.preventDefault(); focusOption(0); }
-      if (event.key === 'End') { event.preventDefault(); focusOption(members.length); }
-      if (event.key === 'Escape') { event.preventDefault(); setOpen(false); triggerRef.current?.focus(); }
-    }}><span>{member.name}</span>{member.id === value && <span aria-hidden="true">✓</span>}</button>)}</div>}
-  </div>;
+function TeamAvailabilityPanel({ month, onMonthChange, view, onViewChange, entries, editable, onDelete, members, adding, onStartAdd, onCloseAdd, onAdd }: {
+  month: string; onMonthChange: (month: string) => void; view: 'calendar' | 'list'; onViewChange: (view: 'calendar' | 'list') => void; entries: AvailabilityEntry[]; editable: boolean; onDelete: (entry: AvailabilityEntry) => void; members: DomainDataset['members']; adding: boolean; onStartAdd: () => void; onCloseAdd: () => void; onAdd: (kind: AvailabilityKind, input: NewAvailability) => Promise<void>;
+}) {
+  return <section className="panel"><div className="section-title"><div><h2>Availability — {monthLabel(month)}</h2><span className="hint">PTO, on-call, and velocity overrides</span></div><div className="section-actions"><button type="button" className="btn" onClick={() => onMonthChange(addMonths(month, -1))}>Previous</button><button type="button" className="btn" onClick={() => onMonthChange(monthOf(localToday()))}>Today</button><button type="button" className="btn" onClick={() => onMonthChange(addMonths(month, 1))}>Next</button><button type="button" className="btn primary" data-testid="avail-add" disabled={!editable} onClick={onStartAdd}>＋ Add</button></div></div><div className="subtabs" role="tablist" aria-label="Availability presentation"><button className={`subtab${view === 'calendar' ? ' active' : ''}`} type="button" data-testid="avail-view-calendar" onClick={() => onViewChange('calendar')}>Calendar</button><button className={`subtab${view === 'list' ? ' active' : ''}`} type="button" data-testid="avail-view-list" onClick={() => onViewChange('list')}>List</button></div>{view === 'calendar' ? <AvailabilityCalendar entries={entries} disabled={!editable} onDelete={onDelete} /> : <AvailabilityList entries={entries} disabled={!editable} onDelete={onDelete} />}{adding && <AddAvailabilityModal members={members} onClose={onCloseAdd} onAdd={onAdd} />}</section>;
 }
 
 function BandwidthView({ checkIns, month, setMonth, loading, onSelectDate }: { checkIns: BandwidthCheckIn[]; month: string; setMonth: (month: string) => void; loading: boolean; onSelectDate: (date: string, trigger: HTMLButtonElement) => void }) {

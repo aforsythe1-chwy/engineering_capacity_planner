@@ -7,6 +7,23 @@ const bool = (v: boolean): number => (v ? 1 : 0);
 const scopeIdToDb = (scopeId: string | null): string => scopeId ?? '';
 const scopeIdFromDb = (scopeId: string): string | null => (scopeId === '' ? null : scopeId);
 
+function assertUniqueValues(values: string[], label: string): void {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  if (duplicates.size > 0) {
+    throw new Error(`Duplicate ${label} in dataset: ${[...duplicates].sort().join(', ')}`);
+  }
+}
+
+function assertUniqueDatasetKeys(dataset: DomainDataset): void {
+  assertUniqueValues(dataset.stories.map((story) => story.key), 'story keys');
+  assertUniqueValues(dataset.workItems.map((item) => item.key), 'work item keys');
+}
+
 /**
  * Replace the entire contents of the database with `dataset`, in a single
  * transaction. Existing rows are cleared first (child tables before parents) so
@@ -19,6 +36,8 @@ const scopeIdFromDb = (scopeId: string): string | null => (scopeId === '' ? null
  * one unit; normal seed/import callers should use {@link writeDataset}.
  */
 export function replaceDatasetRows(db: Db, dataset: DomainDataset): void {
+  assertUniqueDatasetKeys(dataset);
+
   // Dataset replacement temporarily removes teams and members that durable
   // standup history references. Defer FK checks until the surrounding
   // transaction commits, after those same parent rows have been restored.

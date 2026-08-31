@@ -242,8 +242,19 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
   const allEpics = [...refreshedEpics, ...archivedEpics];
   const epicKeys = new Set(allEpics.map((e) => e.key));
   const archivedStoryKeys = new Set(current.stories.filter((s) => archivedEpics.some((e) => e.key === s.epicKey)).map((s) => s.key));
-  const allStories = [...incoming.stories, ...current.stories.filter((s) => archivedStoryKeys.has(s.key))];
-  const allWorkItems = [...remappedWorkItems, ...current.workItems.filter((w) => archivedStoryKeys.has(w.storyKey))];
+  // Fresh Jira ownership wins by globally unique Jira key. A story or ticket
+  // can move out of an epic during the same sync that the old epic leaves the
+  // active board scope. Preserve the rest of the archived history, but never
+  // retain the stale copy under its former parent.
+  const incomingStoryKeys = new Set(incoming.stories.map((s) => s.key));
+  const retainedArchivedStories = current.stories.filter(
+    (s) => archivedStoryKeys.has(s.key) && !incomingStoryKeys.has(s.key),
+  );
+  const retainedArchivedWorkItems = current.workItems.filter(
+    (w) => archivedStoryKeys.has(w.storyKey) && !incomingKeys.has(w.key),
+  );
+  const allStories = [...incoming.stories, ...retainedArchivedStories];
+  const allWorkItems = [...remappedWorkItems, ...retainedArchivedWorkItems];
   const allItemKeys = new Set(allWorkItems.map((w) => w.key));
   const allDependencies = [...incoming.dependencies, ...current.dependencies.filter((d) => allItemKeys.has(d.blockerItemKey) && allItemKeys.has(d.blockedItemKey) && !incoming.dependencies.some((x) => x.id === d.id))];
   const milestones = current.milestones.filter((m) => epicKeys.has(m.epicKey));

@@ -111,4 +111,19 @@ describe('writeDataset / readDataset', () => {
     expect(count.n).toBe(50);
     db.close();
   });
+
+  it('reports duplicate work item keys before replacing existing rows', () => {
+    const db = openDatabase();
+    const original = generateSyntheticDataset({ seed: 2 });
+    writeDataset(db, original);
+    const duplicate = generateSyntheticDataset({ seed: 3 });
+    duplicate.workItems.push({ ...duplicate.workItems[0]! });
+
+    expect(() => writeDataset(db, duplicate)).toThrow(
+      `Duplicate work item keys in dataset: ${duplicate.workItems[0]!.key}`,
+    );
+    const count = db.prepare('SELECT COUNT(*) AS n FROM work_item').get() as { n: number };
+    expect(count.n).toBe(original.workItems.length);
+    db.close();
+  });
 });

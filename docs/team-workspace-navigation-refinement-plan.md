@@ -1,10 +1,10 @@
 # Team Workspace Navigation Refinement — Durable Implementation Plan
 
-**Status:** Proposed; implementation has not started
+**Status:** Implemented; manual validation ready
 
 **Created:** 2026-08-29
 
-**Last updated:** 2026-08-29 — initial plan based on the current Team page implementation and UI review
+**Last updated:** 2026-08-29 — implemented Slice 3 focused Team navigation regression coverage
 
 **Scope:** refine the Team page's in-page navigation, engineer scope control, control hierarchy,
 responsive layout, and accessibility without changing its data models, primary application
@@ -459,8 +459,25 @@ Required assertions include:
 
 **Current status:** plan complete; no implementation files have been changed.
 
-**Next action:** implement Slice 1 only, then perform its manual slice validation before moving the
-Engineer picker or extracting Availability.
+**Completed:** Slice 1 — the Team heading, analysis tabs, and shared scope toolbar are now separate
+surfaces. Team analysis tabs use roving tab stops plus Left/Right/Home/End automatic activation and
+one associated tabpanel. Engineer scope now reconciles synchronously to the active roster before
+any filtered results render, and resets stale selections to the aggregate scope.
+
+**Completed:** Slice 2 — Engineer now uses the shared local Typeahead: it exposes the committed
+selection in the field, clears scope while edited, presents the full active roster on focus, and
+uses a stable **All engineers** aggregate option. Availability is now a focused local panel
+component, retaining all of its existing month, presentation, and Add controls.
+
+**Completed:** Slice 3 — added `team-navigation.spec.ts` coverage for Team tab semantics and focus,
+scope persistence and invalid-team resets, lazy Sprint output fetching, shared Bandwidth/Availability
+month state, and 390px page overflow. The focused Team and historical Bandwidth browser suite, unit
+suite, and production build pass.
+
+**Verification update:** `npm run typecheck --workspace @ecp/frontend` now passes after resolving
+the strict-null safety of the Sprint output gauge widths in `src/lib/engineerSprintOutput.ts`.
+
+**Next action:** perform the manual validation checklist in §10 before release or review.
 
 **First files to inspect:**
 
