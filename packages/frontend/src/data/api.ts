@@ -25,6 +25,7 @@ import type {
   StandupNoteMention,
   StandupAudioTrackSummary,
   TeamStandupAudioSettings,
+  TeamSprintOutput,
 } from '@ecp/shared';
 
 export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
@@ -46,6 +47,7 @@ export const getStandupMemberTickets = (sessionId: string, memberId: string): Pr
 export const refreshStandupMemberTickets = (sessionId: string, memberId: string): Promise<StandupMemberTicketContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/participants/${encodeURIComponent(memberId)}/tickets/refresh`);
 export const getStandupSprintProgress = (sessionId: string): Promise<StandupSprintProgressContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/sprint-progress`);
 export const refreshStandupSprintProgress = (sessionId: string): Promise<StandupSprintProgressContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/sprint-progress/refresh`);
+export const getCurrentSprintOutput = (teamId: string): Promise<TeamSprintOutput> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/current-sprint-output`);
 export const getStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests`);
 export const refreshStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/refresh`);
 export const createIntakeAwareness = (sessionId: string, jiraKey: string, input: { awareDate: string; dateConfidence: IntakeAwarenessConfidence; notes?: string }): Promise<IntakeAwarenessRecord> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/${encodeURIComponent(jiraKey)}/awareness`, input);

@@ -2,7 +2,7 @@ import type { StandupMemberTicketContext, StandupSprintProgressContext, StandupS
 import type { JiraClient } from './client.js';
 import { mapJiraStatus } from './mapper.js';
 
-const MAX_TICKETS = 100;
+const MAX_TICKETS = 500;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const jiraQuote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
@@ -34,7 +34,7 @@ export async function refreshStandupSprintProgress(client: JiraClient | undefine
       for (const issue of page.issues) {
         if (/^epic$/i.test(issue.fields.issuetype?.name ?? '')) continue;
         const raw = issue.fields[input.storyPointsField]; const numeric = typeof raw === 'number' ? raw : Number(raw);
-        items.push({ key: issue.key, summary: issue.fields.summary ?? issue.key, issueType: issue.fields.issuetype?.name ?? 'Issue', status: issue.fields.status?.name ?? 'Unknown', normalizedStatus: mapJiraStatus(issue.fields), points: Number.isFinite(numeric) && numeric >= 0 ? numeric : null, assigneeName: issue.fields.assignee?.displayName ?? null, url: input.jiraBaseUrl ? `${input.jiraBaseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(issue.key)}` : null });
+        items.push({ key: issue.key, summary: issue.fields.summary ?? issue.key, issueType: issue.fields.issuetype?.name ?? 'Issue', status: issue.fields.status?.name ?? 'Unknown', normalizedStatus: mapJiraStatus(issue.fields), points: Number.isFinite(numeric) && numeric >= 0 ? numeric : null, assigneeAccountId: issue.fields.assignee?.accountId ?? null, assigneeName: issue.fields.assignee?.displayName ?? null, url: input.jiraBaseUrl ? `${input.jiraBaseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(issue.key)}` : null });
       }
       nextPageToken = page.nextPageToken;
       if (items.length >= MAX_TICKETS && nextPageToken) { truncated = true; break; }

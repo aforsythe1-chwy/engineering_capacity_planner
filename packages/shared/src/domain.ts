@@ -454,8 +454,39 @@ export interface StandupSprintProgressItem {
   status: string;
   normalizedStatus: SprintProgressStatus;
   points: number | null;
+  /** Stable Jira identity used for roster attribution; display names are not keys. */
+  assigneeAccountId: string | null;
   assigneeName: string | null;
   url: string | null;
+}
+
+/** Current-sprint recognized output for one active engineer. */
+export interface EngineerSprintOutput {
+  memberId: string;
+  baseVelocity: number;
+  adjustedCapacity: number | null;
+  donePoints: number;
+  inReviewPoints: number;
+  inProgressPoints: number;
+  toDoPoints: number;
+  unestimatedDoneOrReviewItems: number;
+  matchedSprintItems: number;
+  availability: { ptoWorkingDays: number; oncallWorkingDays: number; velocityOverrideWorkingDays: number };
+  jiraLinked: boolean;
+}
+
+/** Read-only, live Jira aggregation used by Team's Sprint output view. */
+export interface TeamSprintOutput {
+  teamId: string;
+  /** Configured Jira board URL; the UI adds an engineer's stable account ID. */
+  jiraBoardUrl: string | null;
+  sprint: { id: string; name: string; startDate: IsoDate | null; endDate: IsoDate | null; dateSource: 'jira' | 'stored' | 'unavailable' } | null;
+  capturedAt: string;
+  freshness: 'fresh' | 'unavailable';
+  truncated: boolean;
+  errorMessage: string | null;
+  engineers: EngineerSprintOutput[];
+  unattributed: { itemCount: number; estimatedDoneOrReviewPoints: number; unestimatedDoneOrReviewItems: number };
 }
 /** Complete, session-scoped Jira sprint snapshot. Aggregates are derived in the UI. */
 export interface StandupSprintProgressContext {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildServer } from '../src/server.js';
+import { loadConfig } from '../src/config.js';
 import { FakeJiraClient } from '../src/jira/fake-client.js';
 
 let app: FastifyInstance | undefined;
@@ -75,6 +76,27 @@ describe('GET /api/jira/sample', () => {
     const res = await app.inject({ method: 'GET', url: '/api/jira/sample' });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toMatch(/project key/i);
+  });
+});
+
+describe('GET /api/teams/:teamId/current-sprint-output', () => {
+  it('attributes recognized points by account ID and adjusts capacity for PTO', async () => {
+    const jira = new FakeJiraClient();
+    jira.setSprints(1, [{ id: 21, name: 'Current sprint', state: 'active', startDate: '2026-08-17T09:00:00Z', endDate: '2026-08-21T17:00:00Z' }]);
+    await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Done', status: { name: 'Done', statusCategory: { key: 'done', name: 'Done' } }, assignee: { accountId: 'ada', displayName: 'Ada' }, customfield_10016: 5, customfield_10020: [{ id: 21 }] } });
+    await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Review', status: { name: 'Ready for review', statusCategory: { key: 'indeterminate', name: 'In Progress' } }, assignee: { accountId: 'ada', displayName: 'Ada' }, customfield_10016: 3, customfield_10020: [{ id: 21 }] } });
+    await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Working', status: { name: 'In Progress', statusCategory: { key: 'indeterminate', name: 'In Progress' } }, assignee: { accountId: 'ada', displayName: 'Ada' }, customfield_10016: 2, customfield_10020: [{ id: 21 }] } });
+    await jira.createIssue({ fields: { project: { key: 'CKT' }, issuetype: { name: 'Story' }, summary: 'Planned', status: { name: 'To Do', statusCategory: { key: 'new', name: 'To Do' } }, assignee: { accountId: 'ada', displayName: 'Ada' }, customfield_10016: 1, customfield_10020: [{ id: 21 }] } });
+    app = await buildServer({ dbPath: ':memory:', dataSource: 'synthetic', seedIfEmpty: true, jira: { ...loadConfig().jira, baseUrl: 'https://chewyinc.atlassian.net' } }, { jiraClient: jira });
+    await app.inject({ method: 'PUT', url: '/api/members/M1', payload: { jiraAccountId: 'ada' } });
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { jira_project_key: 'CKT', jira_board_id: '1', jira_story_points_field: 'customfield_10016' } });
+    await app.inject({ method: 'POST', url: '/api/pto', payload: { memberId: 'M1', startDate: '2026-08-17', endDate: '2026-08-17' } });
+    const response = await app.inject({ method: 'GET', url: '/api/teams/team-platform/current-sprint-output' });
+    expect(response.statusCode).toBe(200);
+    const ada = response.json().engineers.find((engineer: { memberId: string }) => engineer.memberId === 'M1');
+    expect(ada).toMatchObject({ donePoints: 5, inReviewPoints: 3, inProgressPoints: 2, toDoPoints: 1, jiraLinked: true, availability: { ptoWorkingDays: 1 } });
+    expect(ada.adjustedCapacity).toBeLessThan(ada.baseVelocity);
+    expect(response.json().jiraBoardUrl).toBe('https://chewyinc.atlassian.net/jira/software/c/projects/CKT/boards/1');
   });
 });
 

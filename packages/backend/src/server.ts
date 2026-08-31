@@ -10,6 +10,7 @@ import { createDemoJiraClient, DEMO_MAPPING } from './jira/demo.js';
 import { CachedJiraClient, JiraRequestCache } from './jira/request-cache.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerBandwidthRoutes } from './routes/bandwidth.js';
+import { registerTeamSprintOutputRoutes } from './routes/team-sprint-output.js';
 import { registerStandupRoutes } from './routes/standup.js';
 import { registerDbRoutes } from './routes/db.js';
 import { registerStandupAudioRoutes, UPLOAD_HEADERS } from './routes/standup-audio.js';
@@ -160,6 +161,7 @@ export async function buildServer(overrides: Partial<AppConfig> = {}, deps: Buil
   // Mutating Configuration-tab endpoints (project plan §6).
   registerConfigRoutes(app, db);
   registerBandwidthRoutes(app, db);
+  registerTeamSprintOutputRoutes(app, db, jiraClient, config);
   registerStandupRoutes(app, db, jiraClient, config);
   registerStandupAudioRoutes(app, db);
   // Gantt Planner placement endpoints (project plan §6a).

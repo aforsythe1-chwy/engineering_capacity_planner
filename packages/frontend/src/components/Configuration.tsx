@@ -397,7 +397,7 @@ function MembersSection({ members, colors, teamId, disabled, run, audio }: {
 
   return (
     <section className="config-subsection">
-      <SectionTitle level={3} title="Team members" hint="Per-person velocity (points / sprint) and who's active." />
+      <SectionTitle level={3} title="Team members" hint="Expected points per fully available sprint; PTO, on-call, and temporary overrides adjust this baseline in capacity views." />
       <div className="config-list" data-testid="cfg-members">
         {members.map((m) => (
           <MemberRow key={m.id} member={m} color={colors.get(m.id) ?? '#6b7280'} disabled={disabled} run={run} audio={audio} />
@@ -408,7 +408,7 @@ function MembersSection({ members, colors, teamId, disabled, run, audio }: {
           <input type="text" value={name} disabled={disabled} data-testid="cfg-member-name" placeholder="New member"
             onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Base velocity">
+        <Field label="Base velocity (pts/sprint)">
           <input type="number" min={0} value={velocity} disabled={disabled} onChange={(e) => setVelocity(e.target.value)} />
         </Field>
         <button type="button" className="btn" disabled={disabled || name.trim() === ''} data-testid="cfg-member-add"
@@ -435,7 +435,7 @@ function MemberRow({ member, color, disabled, run, audio }: { member: TeamMember
           onChange={(e) => run(() => api.updateMember(member.id, { active: e.target.checked }))} />
         active
       </label>
-      <input className="mini" type="number" min={0} value={velocity} disabled={disabled}
+      <input className="mini" type="number" min={0} aria-label={`${member.name} base velocity in points per sprint`} value={velocity} disabled={disabled}
         onChange={(e) => setVelocity(e.target.value)} />
       <span className="unit">pts/sprint</span>
       <MemberSongControl member={member} audio={audio} disabled={disabled} />
