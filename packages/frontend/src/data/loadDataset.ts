@@ -12,6 +12,8 @@ export interface LoadedDataset {
   dataSource: RuntimeDataSource;
   /** Whether the backend has opted in to local Jira request diagnostics. */
   jiraRequestDebug: boolean;
+  /** Whether the backend is using its disposable test database. */
+  testMode: boolean;
 }
 
 /** The API path the UI fetches. In dev, Vite proxies `/api` to the backend. */
@@ -57,23 +59,25 @@ export async function loadDataset(): Promise<LoadedDataset> {
       if (looksLikeDataset(data)) {
         let dataSource: RuntimeDataSource = 'unknown';
         let jiraRequestDebug = false;
+        let testMode = false;
         try {
           const health = await fetch(HEALTH_URL, { headers: { Accept: 'application/json' } });
           if (health.ok) {
-            const healthData = (await health.json()) as { dataSource?: unknown; jiraRequestDebug?: unknown };
+            const healthData = (await health.json()) as { dataSource?: unknown; jiraRequestDebug?: unknown; databaseMode?: unknown };
             if (healthData.dataSource === 'synthetic' || healthData.dataSource === 'jira') {
               dataSource = healthData.dataSource;
             }
             jiraRequestDebug = healthData.jiraRequestDebug === true;
+            testMode = healthData.databaseMode === 'test-copy';
           }
         } catch {
           // The dataset is still usable if the optional mode check fails.
         }
-        return { dataset: data, source: 'api', dataSource, jiraRequestDebug };
+        return { dataset: data, source: 'api', dataSource, jiraRequestDebug, testMode };
       }
     }
   } catch {
     // Backend not running / unreachable — fall through to the bundled sample.
   }
-  return { dataset: loadBundledDataset(), source: 'bundled', dataSource: 'synthetic', jiraRequestDebug: false };
+  return { dataset: loadBundledDataset(), source: 'bundled', dataSource: 'synthetic', jiraRequestDebug: false, testMode: false };
 }

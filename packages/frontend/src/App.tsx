@@ -23,14 +23,14 @@ const IncrementPlannerPage = lazy(() => import('./components/IncrementPlannerPag
 const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Calendar'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['increments', 'Increment Planner'], ['team', 'Team'], ['standup', 'Standup'], ['configuration', 'Configuration']];
 
 export function App() {
-  const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; jiraRequestDebug: boolean }>({ status: 'loading' });
+  const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; jiraRequestDebug: boolean; testMode: boolean }>({ status: 'loading' });
   useEffect(() => { let active = true; loadDataset().then((result) => { if (active) setState({ status: 'ready', ...result }); }); return () => { active = false; }; }, []);
   const reload = useCallback(async () => { const result = await loadDataset(); setState({ status: 'ready', ...result }); }, []);
   if (state.status === 'loading') return <div className="app"><div className="panel" data-testid="loading">Loading capacity plan…</div></div>;
   return <><Planner {...state} onReload={reload} /><JiraRequestDebugToast enabled={state.jiraRequestDebug} /></>;
 }
 
-function Planner({ dataset, source, dataSource, onReload }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void> }) {
+function Planner({ dataset, source, dataSource, testMode, onReload }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; testMode: boolean; onReload: () => Promise<void> }) {
   const today = useMemo(() => effectivePlanningDate(dataset), [dataset]);
   const projection = useMemo(() => projectPortfolioFromDataset(dataset, today), [dataset, today]);
   const portfolio = useMemo(() => buildPortfolioOverview(dataset, projection), [dataset, projection]);
@@ -47,7 +47,7 @@ function Planner({ dataset, source, dataSource, onReload }: { dataset: DomainDat
   return <AppShell dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} pickerOptions={portfolio.pickerOptions} selectedKeys={route.epics} onSelect={changeFilter} tab={route.tab} onTabChange={changeTab}>
     {route.invalidKeys.length > 0 && <div className="panel config-notice" role="status">{route.invalidKeys.join(', ')} is no longer tracked, so you are viewing all tracked epics.</div>}
     {route.tab !== 'standup' && <ScopeSummary selectedKeys={route.epics} activeCount={plannerScope.activeEpics.length} />}
-    <PlannerPage dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} tab={route.tab} teamId={route.team ?? dataset.teams[0]?.id ?? null} selectedKeys={route.epics} scope={plannerScope} projection={projection} today={today} selection={selection} onSelect={changeFilter} onTeamChange={changeTeam} />
+    <PlannerPage dataset={dataset} source={source} dataSource={dataSource} testMode={testMode} onReload={onReload} tab={route.tab} teamId={route.team ?? dataset.teams[0]?.id ?? null} selectedKeys={route.epics} scope={plannerScope} projection={projection} today={today} selection={selection} onSelect={changeFilter} onTeamChange={changeTeam} />
   </AppShell>;
 }
 
@@ -59,12 +59,12 @@ function ScopeSummary({ selectedKeys, activeCount }: { selectedKeys: string[]; a
   return <p className="scope-summary" role="status">{selectedKeys.length ? `Showing ${selectedKeys.join(', ')}; shared capacity still includes all ${activeCount} active epics.` : `Showing all ${activeCount} active epics.`}</p>;
 }
 
-function PlannerPage({ dataset, source, dataSource, onReload, tab, teamId, selectedKeys, scope, projection, today, selection, onSelect, onTeamChange }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; onReload: () => Promise<void>; tab: PlannerTab; teamId: string | null; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; today: string; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void; onTeamChange: (teamId: string) => void }) {
+function PlannerPage({ dataset, source, dataSource, testMode, onReload, tab, teamId, selectedKeys, scope, projection, today, selection, onSelect, onTeamChange }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; testMode: boolean; onReload: () => Promise<void>; tab: PlannerTab; teamId: string | null; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; today: string; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void; onTeamChange: (teamId: string) => void }) {
   if (tab === 'overview') return <PortfolioOverview dataset={dataset} projection={projection} selectedKeys={selectedKeys} onSelect={(key) => onSelect([key])} />;
   if (tab === 'timeline') return <PortfolioCalendarPage dataset={dataset} projection={projection} selectedKeys={selectedKeys} today={today} editable={source === 'api'} onReload={onReload} />;
   if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
   if (tab === 'team') return <TeamPage dataset={dataset} teamId={teamId} editable={source === 'api'} onReload={onReload} onTeamChange={onTeamChange} />;
-  if (tab === 'standup') return <RunStandupPage dataset={dataset} projection={projection} teamId={teamId} editable={source === 'api'} onTeamChange={onTeamChange} />;
+  if (tab === 'standup') return <RunStandupPage dataset={dataset} projection={projection} teamId={teamId} editable={source === 'api'} testMode={testMode} onTeamChange={onTeamChange} />;
   if (tab === 'increments') return <Suspense fallback={<div className="panel" role="status">Loading increment canvas…</div>}><IncrementPlannerPage dataset={dataset} selectedKeys={selectedKeys} /></Suspense>;
   if (tab === 'dependencies') {
     const displayScope = makeDependencyScope(dataset, scope);

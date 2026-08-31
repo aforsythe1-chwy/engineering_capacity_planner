@@ -41,6 +41,21 @@ describe('loadDataset', () => {
     expect(dataSource).toBe('jira');
   });
 
+  it('reports test mode only when the connected backend uses its disposable test database', async () => {
+    const apiDataset = loadBundledDataset();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === '/health'
+          ? new Response(JSON.stringify({ databaseMode: 'test-copy' }), { status: 200 })
+          : new Response(JSON.stringify(apiDataset), { status: 200 }),
+      ),
+    );
+    const { source, testMode } = await loadDataset();
+    expect(source).toBe('api');
+    expect(testMode).toBe(true);
+  });
+
   it('uses the API when it returns a valid empty dataset', async () => {
     const emptyDataset = {
       teams: [],
