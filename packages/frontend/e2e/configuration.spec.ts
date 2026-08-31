@@ -26,7 +26,16 @@ test('groups configuration by responsibility and renders walk-off songs in the o
   await expect(page.getByRole('heading', { name: 'Data maintenance', exact: true })).toBeVisible();
 
   const roster = page.getByTestId('cfg-members');
-  await expect(roster.locator('[data-testid^="cfg-member-"]')).toHaveCount(5);
+  await expect(roster.locator('.config-list').first().locator('[data-testid^="cfg-member-"]')).toHaveCount(4);
+  const inactiveMembers = page.getByTestId('cfg-inactive-members');
+  await expect(inactiveMembers.getByText('Inactive members (1)', { exact: true })).toBeVisible();
+  await expect(inactiveMembers).not.toHaveAttribute('open', '');
+  await expect(inactiveMembers.getByTestId('cfg-member-M5')).not.toBeVisible();
+  await inactiveMembers.getByText('Inactive members (1)', { exact: true }).press('Enter');
+  await expect(inactiveMembers).toHaveAttribute('open', '');
+  await expect(inactiveMembers.getByTestId('cfg-member-M5')).toBeVisible();
+  await expect(inactiveMembers.getByText('Esteban', { exact: true })).toBeVisible();
+  await expect(inactiveMembers.getByRole('checkbox', { name: 'active' })).toBeDisabled();
   await expect(page.locator('.standup-audio-member')).toHaveCount(0);
   await expect(roster.getByText('Uses team default: Default Anthem').first()).toBeVisible();
   await expect(roster.getByText('No song')).toBeVisible();
@@ -42,5 +51,9 @@ test('keeps the consolidated Team panel usable on a narrow viewport', async ({ p
   await expect(availability).toBeVisible();
   const box = await availability.boundingBox();
   expect(box?.width).toBeGreaterThan(300);
-  await expect(page.getByTestId('cfg-members').getByText('Custom Entrance')).toBeVisible();
+  const inactiveMembers = page.getByTestId('cfg-inactive-members');
+  await inactiveMembers.getByText('Inactive members (1)', { exact: true }).click();
+  await expect(inactiveMembers.getByText('Uses team default: Default Anthem')).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  expect(overflow).toBe(false);
 });

@@ -394,14 +394,27 @@ function MembersSection({ members, colors, teamId, disabled, run, audio }: {
 }) {
   const [name, setName] = useState('');
   const [velocity, setVelocity] = useState('10');
+  const activeMembers = members.filter((member) => member.active);
+  const inactiveMembers = members.filter((member) => !member.active);
 
   return (
     <section className="config-subsection">
       <SectionTitle level={3} title="Team members" hint="Expected points per fully available sprint; PTO, on-call, and temporary overrides adjust this baseline in capacity views." />
-      <div className="config-list" data-testid="cfg-members">
-        {members.map((m) => (
-          <MemberRow key={m.id} member={m} color={colors.get(m.id) ?? '#6b7280'} disabled={disabled} run={run} audio={audio} />
-        ))}
+      <div data-testid="cfg-members">
+        <div className="config-list">
+          {activeMembers.map((m) => (
+            <MemberRow key={m.id} member={m} color={colors.get(m.id) ?? '#6b7280'} disabled={disabled} run={run} audio={audio} />
+          ))}
+          {activeMembers.length === 0 && <p className="empty hint">No active team members. Add a member below or reactivate an inactive member.</p>}
+        </div>
+        {inactiveMembers.length > 0 && <details className="config-inactive-members" data-testid="cfg-inactive-members">
+          <summary>Inactive members ({inactiveMembers.length})</summary>
+          <div className="config-list config-inactive-members-list">
+            {inactiveMembers.map((m) => (
+              <MemberRow key={m.id} member={m} color={colors.get(m.id) ?? '#6b7280'} disabled={disabled} run={run} audio={audio} />
+            ))}
+          </div>
+        </details>}
       </div>
       <div className="controls config-add">
         <Field label="Name">
