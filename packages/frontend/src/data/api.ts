@@ -26,6 +26,7 @@ import type {
   StandupAudioTrackSummary,
   TeamStandupAudioSettings,
   TeamSprintOutput,
+  TeamHoliday,
 } from '@ecp/shared';
 
 export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
@@ -48,6 +49,10 @@ export const refreshStandupMemberTickets = (sessionId: string, memberId: string)
 export const getStandupSprintProgress = (sessionId: string): Promise<StandupSprintProgressContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/sprint-progress`);
 export const refreshStandupSprintProgress = (sessionId: string): Promise<StandupSprintProgressContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/sprint-progress/refresh`);
 export const getCurrentSprintOutput = (teamId: string): Promise<TeamSprintOutput> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/current-sprint-output`);
+export const listTeamHolidays = (teamId: string, range: { start?: string; end?: string } = {}): Promise<{ holidays: TeamHoliday[] }> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/holidays${qs(range)}`);
+export const createTeamHoliday = (teamId: string, input: Pick<TeamHoliday, 'date' | 'name'>): Promise<TeamHoliday> => request('POST', `/api/teams/${encodeURIComponent(teamId)}/holidays`, input);
+export const updateTeamHoliday = (teamId: string, holidayId: string, input: Partial<Pick<TeamHoliday, 'date' | 'name'>>): Promise<TeamHoliday> => request('PUT', `/api/teams/${encodeURIComponent(teamId)}/holidays/${encodeURIComponent(holidayId)}`, input);
+export const deleteTeamHoliday = (teamId: string, holidayId: string): Promise<void> => request('DELETE', `/api/teams/${encodeURIComponent(teamId)}/holidays/${encodeURIComponent(holidayId)}`);
 export const getStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests`);
 export const refreshStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/refresh`);
 export const createIntakeAwareness = (sessionId: string, jiraKey: string, input: { awareDate: string; dateConfidence: IntakeAwarenessConfidence; notes?: string }): Promise<IntakeAwarenessRecord> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/${encodeURIComponent(jiraKey)}/awareness`, input);

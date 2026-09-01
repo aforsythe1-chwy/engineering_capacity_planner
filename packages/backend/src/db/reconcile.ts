@@ -278,6 +278,7 @@ export function reconcileDataset(current: DomainDataset, incoming: DomainDataset
     velocityOverrides,
     pto,
     oncall,
+    holidays: current.holidays ?? [],
     bandwidthCheckIns,
     epics: allEpics,
     portfolioEpics: current.portfolioEpics,

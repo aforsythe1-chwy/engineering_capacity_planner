@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS oncall (
   note       TEXT
 );
 
+CREATE TABLE IF NOT EXISTS team_holiday (
+  id      TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE,
+  date    TEXT NOT NULL,
+  name    TEXT NOT NULL,
+  UNIQUE(team_id, date, name)
+);
+
 -- One self-reported workload signal per member and local calendar day. This is
 -- intentionally local planning history, not imported from Jira.
 CREATE TABLE IF NOT EXISTS bandwidth_check_in (
@@ -160,7 +168,10 @@ CREATE TABLE IF NOT EXISTS sprint (
   team_id    TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
   start_date TEXT NOT NULL,
-  end_date   TEXT NOT NULL
+  end_date   TEXT NOT NULL,
+  state      TEXT,
+  goal       TEXT,
+  origin_board_id TEXT
 );
 
 -- Human-authored week placements for the Gantt Planner (project plan §6a).
@@ -324,6 +335,7 @@ CREATE INDEX IF NOT EXISTS idx_standup_participant_session ON standup_participan
 CREATE INDEX IF NOT EXISTS idx_standup_audio_team_default_track ON standup_audio_team_default(track_id);
 CREATE INDEX IF NOT EXISTS idx_standup_audio_member_override_track ON standup_audio_member_override(track_id);
 CREATE INDEX IF NOT EXISTS idx_intake_awareness_date ON intake_request_awareness(aware_date, jira_key);
+CREATE INDEX IF NOT EXISTS idx_team_holiday_date ON team_holiday(team_id, date, name);
 `;
 
 /** Order tables must be inserted into to satisfy foreign keys. */
@@ -334,6 +346,7 @@ export const INSERT_ORDER = [
   'velocity_override',
   'pto',
   'oncall',
+  'team_holiday',
   'sprint',
   'epic',
   'portfolio_epic',

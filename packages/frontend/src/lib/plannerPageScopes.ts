@@ -61,6 +61,7 @@ export function makeGanttScope(dataset: DomainDataset, planner: PlannerScope): G
     pto: base.pto,
     oncall: base.oncall,
     velocityOverrides: base.velocityOverrides,
+    holidays: (dataset.holidays ?? []).filter((holiday) => holiday.teamId === base.team.id),
     sprints: base.sprints,
     defaults: base.defaults,
     planningToday: base.planningToday,

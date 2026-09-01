@@ -143,6 +143,15 @@ export interface Oncall {
   note?: string | null;
 }
 
+/** A full-day, team-wide holiday. Unlike portfolio important dates, this is a
+ * capacity input and therefore intentionally belongs to the team. */
+export interface TeamHoliday {
+  id: string;
+  teamId: string;
+  date: IsoDate;
+  name: string;
+}
+
 // ---------------------------------------------------------------------------
 // Work hierarchy
 // ---------------------------------------------------------------------------
@@ -332,6 +341,10 @@ export interface Sprint {
   name: string;
   startDate: IsoDate;
   endDate: IsoDate;
+  /** Jira lifecycle metadata retained for Sprint Overview defaulting. */
+  state?: 'future' | 'active' | 'closed' | null;
+  goal?: string | null;
+  originBoardId?: string | null;
 }
 
 /**
@@ -551,6 +564,8 @@ export interface DomainDataset {
   velocityOverrides: VelocityOverride[];
   pto: Pto[];
   oncall: Oncall[];
+  /** Local, team-wide capacity inputs; never sourced from Jira. */
+  holidays?: TeamHoliday[];
   epics: Epic[];
   portfolioEpics?: PortfolioEpic[];
   /** Optional while older fixtures and database snapshots are migrated. */

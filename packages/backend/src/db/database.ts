@@ -55,6 +55,9 @@ function migrate(db: Db): void {
   ensureColumn(db, 'epic', 'last_seen_at', 'TEXT');
   ensureColumn(db, 'work_item', 'is_estimated', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'work_item', 'jira_sprint_assigned', 'INTEGER');
+  ensureColumn(db, 'sprint', 'state', 'TEXT');
+  ensureColumn(db, 'sprint', 'goal', 'TEXT');
+  ensureColumn(db, 'sprint', 'origin_board_id', 'TEXT');
   ensureColumn(db, 'bandwidth_check_in', 'session_id', 'TEXT');
   ensureColumn(db, 'standup_note', 'note_state', "TEXT NOT NULL DEFAULT 'open'");
   ensureColumn(db, 'standup_note', 'completed_at', 'TEXT');
@@ -74,6 +77,7 @@ function migrate(db: Db): void {
   // This index references a column introduced above, so it must be created
   // after additive migrations when opening databases from older releases.
   db.exec('CREATE INDEX IF NOT EXISTS idx_epic_active ON epic(active)');
+  db.exec('CREATE TABLE IF NOT EXISTS team_holiday (id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE, date TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(team_id, date, name)); CREATE INDEX IF NOT EXISTS idx_team_holiday_date ON team_holiday(team_id, date, name)');
   db.exec(`CREATE TABLE IF NOT EXISTS standup_note_mention (
     note_id TEXT NOT NULL REFERENCES standup_note(id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK(position >= 0),

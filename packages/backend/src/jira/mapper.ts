@@ -169,7 +169,7 @@ export function datasetFromJira(input: JiraDatasetInput): DomainDataset {
     const end = start && rawEnd ? sprintEndForCadence(start, rawEnd) : rawEnd;
     if (!start || !end) continue; // sprints without dates can't drive week columns
     if (earliestStart === null || start < earliestStart) earliestStart = start;
-    domainSprints.push({ id: String(s.id), teamId, name: s.name, startDate: start, endDate: end });
+    domainSprints.push({ id: String(s.id), teamId, name: s.name, startDate: start, endDate: end, state: s.state, goal: s.goal ?? null, originBoardId: s.originBoardId == null ? null : String(s.originBoardId) });
   }
   domainSprints.sort((a, b) => a.startDate.localeCompare(b.startDate));
   const domainSprintById = new Map(domainSprints.map((s) => [s.id, s]));

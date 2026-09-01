@@ -92,6 +92,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-vis
   font-size: 20px;
   margin: 0;
 }
+.sprint-overview { display: grid; gap: 14px; margin-top: 14px; }.sprint-overview-header { display: flex; justify-content: space-between; gap: 16px; align-items: end; flex-wrap: wrap; }.sprint-overview-header h2, .sprint-launch h3 { margin: 0; }.sprint-overview-header p, .sprint-launch p { color: var(--muted); font-size: 13px; margin: 5px 0 0; }.sprint-launch { display: grid; gap: 12px; max-width: 620px; }.sprint-picker { width: min(100%, 460px); }.sprint-picker .typeahead { width: 100%; }.sprint-summary { margin-bottom: 0; }
 .app-header .epic-title {
   color: var(--muted);
   font-size: 14px;

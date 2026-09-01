@@ -124,7 +124,7 @@ export function projectPortfolioFromDataset(dataset: DomainDataset, today: IsoDa
     const team = dataset.teams.find((entry) => entry.id === teamId)!;
     const memberIds = new Set(dataset.members.filter((member) => member.teamId === teamId).map((member) => member.id));
     const cfg: EngineConfig = { ...DEFAULT_ENGINE_CONFIG, ...readEngineConfig(dataset) };
-    const ctx = buildCapacityContext({ members: dataset.members.filter((member) => member.teamId === teamId), pto: dataset.pto.filter((entry) => memberIds.has(entry.memberId)), oncall: dataset.oncall.filter((entry) => memberIds.has(entry.memberId)), velocityOverrides: dataset.velocityOverrides.filter((entry) => memberIds.has(entry.memberId)), oncallMultiplier: cfg.oncallMultiplier });
+    const ctx = buildCapacityContext({ members: dataset.members.filter((member) => member.teamId === teamId), pto: dataset.pto.filter((entry) => memberIds.has(entry.memberId)), oncall: dataset.oncall.filter((entry) => memberIds.has(entry.memberId)), velocityOverrides: dataset.velocityOverrides.filter((entry) => memberIds.has(entry.memberId)), holidays: (dataset.holidays ?? []).filter((entry) => entry.teamId === teamId), oncallMultiplier: cfg.oncallMultiplier });
     const getSprint = makeSprintCache(team);
     let day = today;
     let remaining = candidates.filter((candidate) => epics.some((epic) => epic.key === candidate.epicKey)).map((candidate) => ({ ...candidate, left: candidate.points }));

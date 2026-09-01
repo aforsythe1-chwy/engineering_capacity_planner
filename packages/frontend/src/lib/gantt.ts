@@ -5,6 +5,7 @@ import type {
   Pto,
   Sprint,
   Team,
+  TeamHoliday,
   TeamMember,
   UserStory,
   VelocityOverride,
@@ -35,6 +36,7 @@ export interface GanttScope {
   pto: Pto[];
   oncall: Oncall[];
   velocityOverrides: VelocityOverride[];
+  holidays?: TeamHoliday[];
   sprints: Sprint[];
   defaults: {
     oncallMultiplier: number;
@@ -155,6 +157,7 @@ export function buildGanttView(
     pto: scope.pto,
     oncall: scope.oncall,
     velocityOverrides: scope.velocityOverrides,
+    holidays: scope.holidays ?? [],
     oncallMultiplier: scope.defaults.oncallMultiplier,
   });
 
@@ -252,6 +255,7 @@ function memberWeekCapacity(
     pto: scope.pto.filter((p) => p.memberId === member.id),
     oncall: scope.oncall.filter((o) => o.memberId === member.id),
     velocityOverrides: scope.velocityOverrides.filter((v) => v.memberId === member.id),
+    holidays: scope.holidays ?? [],
     oncallMultiplier: scope.defaults.oncallMultiplier,
   });
   const perWeek = sprintGroups.flatMap(({ sprint }) => weeklyPlan({
