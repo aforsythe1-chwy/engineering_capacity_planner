@@ -66,7 +66,7 @@ describe('JiraImporter over the fake client', () => {
     ]);
     expect(ds.members.map((m) => m.name).sort()).toEqual(['Ada', 'Björn']);
     expect(ds.sprints).toEqual([
-      { id: '21', teamId: 'team-jira-ckt', name: 'Sprint 1', startDate: '2026-01-27', endDate: '2026-02-09' },
+      { id: '21', teamId: 'team-jira-ckt', name: 'Sprint 1', startDate: '2026-01-27', endDate: '2026-02-09', state: 'active', goal: null, originBoardId: null },
     ]);
     // Referential integrity: every work item's story and assignee resolve.
     const storyKeys = new Set(ds.stories.map((s) => s.key));

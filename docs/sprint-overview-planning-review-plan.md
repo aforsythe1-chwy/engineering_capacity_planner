@@ -1,10 +1,10 @@
 # Sprint Overview — Planning and Review Durable Implementation Plan
 
-**Status:** In progress — Slice 1 foundation and Sprint Overview shell implemented
+**Status:** Complete — Slices 1–7 implemented; Slice 8 remains explicitly deferred
 
 **Created:** 2026-08-31
 
-**Last updated:** 2026-08-31 — added holiday-aware capacity/persistence, sprint metadata, and initial Sprint Overview routing/shell
+**Last updated:** 2026-09-02 — completed durable Planning/Review workflows, historical context, and hardening coverage
 
 **Working branch:** `plan/sprint-planning-review`
 
@@ -1280,15 +1280,41 @@ Required coverage includes:
 
 ## 15. Continuation instructions
 
-**Current status:** Slice 1 foundation is in progress: `TeamHoliday` is persisted locally and flows
-through the shared capacity engine, portfolio projection, Gantt, and Team sprint output. Jira sprint
-state/goal/origin-board metadata now round-trips. The peer Sprint Overview tab, canonical mode/sprint
-route state, local searchable sprint launch control, and capacity summary are in place. Durable
-ceremonies, snapshots, commitment selection, review aggregation, and the Team holiday editor remain.
+**Current status:** Slices 1–7 are complete. Annual TeamHoliday rules are persisted locally,
+recur in the shared capacity engine, portfolio projection, Gantt, Team sprint output, and Calendar.
+Jira sprint state/goal/origin-board metadata round-trips. Sprint Overview has durable mode/sprint
+routing, a searchable launch control, idempotent local ceremony creation, optimistic-concurrency
+mutations, ordered plan items and notes, reopening, immutable snapshots, and review baseline
+linkage. Snapshot work-item facts and capacity are derived on the server from stored facts,
+availability, settings, and recurring holidays; ceremony history survives dataset replacement.
 
-**Next action:** complete Slice 1 with Team holiday editing and focused holiday migration/capacity
-tests, then implement Slice 2 ceremony persistence and optimistic-concurrency endpoints before
-making the Sprint Overview launch action durable.
+**Implementation summary:** the generalized context service now fetches an arbitrary
+numeric Jira sprint ID using the existing bounded, normalized pagination seam, maps current Jira
+facts to local epic/member attribution, and falls back explicitly to stored facts. Ceremony Refresh
+requests are coalesced; Jira-mode finalization requires a fresh, complete Jira result. Planning now
+uses the existing shared portfolio allocator to show required contribution, selection, and gap per
+epic, plus a durable keyboard-operable commitment order. Review shows point-based status, scope,
+epic, contributor, no-baseline, and linked **From planning** note context. Snapshot items retain
+member display labels, so historical contributor rows do not depend on the current roster. A focused
+Playwright test verifies Sprint Overview launch and narrow width.
+
+**Planning update:** the Planning page exposes one searchable Portfolio backlog of eligible non-Done
+work, grouped by local epic and deliberately independent from the shared-capacity outlook. Adding an
+item updates the durable local commitment; its order is controllable with keyboard-operable
+Earlier/Later actions in the separate Sprint commitment list. Notes can be attached durably to the
+general ceremony, sprint capacity, an epic, or a team member with their current label/value frozen at
+capture time.
+
+**Lifecycle update:** draft source candidates are persisted and reused as stale context after a Jira
+failure. Completing a Review now asks for explicit confirmation and, when the stored sprint is
+active, the backend rejects a request without that acknowledgement.
+
+**Validation:** focused shared, engine, backend, frontend typecheck, and Sprint Overview Playwright
+coverage pass. The normal full Playwright run still has two unrelated Standup mocked-flow failures;
+those are outside this plan's surface.
+
+**Next action:** no implementation slices remain. Revisit only Deferred Slice 8 if exact Jira
+history timelines become a separately approved priority.
 
 **First files to inspect:**
 

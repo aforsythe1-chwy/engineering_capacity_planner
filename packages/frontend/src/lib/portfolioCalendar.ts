@@ -1,15 +1,18 @@
 import type { PortfolioHealth, PortfolioProjection } from '@ecp/engine';
-import { effectivePortfolioEpic, type DomainDataset, type ImportantDateIconKey, type IsoDate } from '@ecp/shared';
+import { effectivePortfolioEpic, type DomainDataset, type ImportantDateIconKey, type IsoDate, type TeamHoliday } from '@ecp/shared';
 
-export type PortfolioCalendarEventKind = 'important-date' | 'gating' | 'milestone' | 'dev-complete';
+export type PortfolioCalendarEventKind = 'important-date' | 'holiday' | 'gating' | 'milestone' | 'dev-complete';
 export type PortfolioCalendarEvent = {
-  id: string; date: IsoDate; epicKey: null; label: string; kind: 'important-date'; iconKey: ImportantDateIconKey; notes: string | null; linkUrl: string | null;
+  id: string; sourceId: string; date: IsoDate; epicKey: null; label: string; kind: 'important-date'; iconKey: ImportantDateIconKey; notes: string | null; linkUrl: string | null;
+} | {
+  id: string; sourceId: string; date: IsoDate; epicKey: null; label: string; kind: 'holiday'; holidayId: string; teamId: string; teamName: string; observed: boolean;
 } | {
   id: string;
+  sourceId: string;
   date: IsoDate;
   epicKey: string;
   label: string;
-  kind: Exclude<PortfolioCalendarEventKind, 'important-date'>;
+  kind: Exclude<PortfolioCalendarEventKind, 'important-date' | 'holiday'>;
   health?: PortfolioHealth;
 };
 export interface PortfolioCalendarWeek {
@@ -34,10 +37,13 @@ export interface PortfolioCalendarModel {
   weeks: PortfolioCalendarWeek[];
   /** Stored team cadence, kept independent from the current epic filter. */
   sprints: PortfolioCalendarSprint[];
+  /** Rules are expanded by the shared month calendar for its current view. */
+  holidays: TeamHoliday[];
+  teamNames: Map<string, string>;
   hasVisibleDatedEvents: boolean;
 }
 
-const KIND_ORDER: Record<PortfolioCalendarEventKind, number> = { 'important-date': 0, gating: 1, 'dev-complete': 2, milestone: 3 };
+export const PORTFOLIO_CALENDAR_KIND_ORDER: Record<PortfolioCalendarEventKind, number> = { 'important-date': 0, holiday: 1, gating: 2, 'dev-complete': 3, milestone: 4 };
 
 export function buildPortfolioCalendarModel(
   dataset: DomainDataset,
@@ -53,13 +59,14 @@ export function buildPortfolioCalendarModel(
     .map((epic) => epic.key));
   const events: PortfolioCalendarEvent[] = [];
   for (const date of dataset.importantDates ?? []) {
-    events.push({ id: `important-date:${date.id}`, date: date.date, epicKey: null, label: date.name, kind: 'important-date', iconKey: date.iconKey, notes: date.notes ?? null, linkUrl: date.linkUrl ?? null });
+    events.push({ id: `important-date:${date.id}`, sourceId: date.id, date: date.date, epicKey: null, label: date.name, kind: 'important-date', iconKey: date.iconKey, notes: date.notes ?? null, linkUrl: date.linkUrl ?? null });
   }
 
   for (const milestone of dataset.milestones) {
     if (!timelineKeys.has(milestone.epicKey)) continue;
     events.push({
       id: `milestone:${milestone.id}`,
+      sourceId: milestone.id,
       date: milestone.date,
       epicKey: milestone.epicKey,
       label: `${milestone.epicKey} · ${milestone.name}`,
@@ -70,6 +77,7 @@ export function buildPortfolioCalendarModel(
     if (!timelineKeys.has(result.epicKey) || !result.projectedDevCompleteDate) continue;
     events.push({
       id: `dev-complete:${result.epicKey}`,
+      sourceId: result.epicKey,
       date: result.projectedDevCompleteDate,
       epicKey: result.epicKey,
       label: `${result.epicKey} · Dev-complete`,
@@ -78,7 +86,7 @@ export function buildPortfolioCalendarModel(
     });
   }
   events.sort((a, b) => a.date.localeCompare(b.date)
-    || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
+    || PORTFOLIO_CALENDAR_KIND_ORDER[a.kind] - PORTFOLIO_CALENDAR_KIND_ORDER[b.kind]
     || (a.epicKey ?? '').localeCompare(b.epicKey ?? '')
     || a.id.localeCompare(b.id));
 
@@ -98,5 +106,5 @@ export function buildPortfolioCalendarModel(
   const sprints = (dataset.sprints ?? []).filter((sprint) => activeTeamIds.has(sprint.teamId)).map((sprint) => ({
     id: sprint.id, name: sprint.name, teamName: teamNames.get(sprint.teamId) ?? sprint.teamId, start: sprint.startDate, end: sprint.endDate,
   })).sort((a, b) => a.start.localeCompare(b.start) || a.teamName.localeCompare(b.teamName) || a.id.localeCompare(b.id));
-  return { today, events, weeks, sprints, hasVisibleDatedEvents: events.length > 0 };
+  return { today, events, weeks, sprints, holidays: dataset.holidays ?? [], teamNames, hasVisibleDatedEvents: events.length > 0 || (dataset.holidays?.length ?? 0) > 0 };
 }

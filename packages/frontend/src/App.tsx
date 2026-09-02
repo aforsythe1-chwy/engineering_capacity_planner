@@ -66,7 +66,7 @@ function PlannerPage({ dataset, source, dataSource, testMode, onReload, tab, tea
   if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
   if (tab === 'team') return <TeamPage dataset={dataset} teamId={teamId} editable={source === 'api'} onReload={onReload} onTeamChange={onTeamChange} />;
   if (tab === 'standup') return <RunStandupPage dataset={dataset} projection={projection} teamId={teamId} editable={source === 'api'} testMode={testMode} onTeamChange={onTeamChange} />;
-  if (tab === 'sprints') return <SprintOverviewPage dataset={dataset} teamId={teamId} selectedKeys={selectedKeys} mode={sprintMode} sprintId={sprintId} onRouteChange={onSprintRouteChange} onTeamChange={onTeamChange} />;
+  if (tab === 'sprints') return <SprintOverviewPage dataset={dataset} teamId={teamId} selectedKeys={selectedKeys} mode={sprintMode} sprintId={sprintId} editable={source === 'api'} onRouteChange={onSprintRouteChange} onTeamChange={onTeamChange} />;
   if (tab === 'increments') return <Suspense fallback={<div className="panel" role="status">Loading increment canvas…</div>}><IncrementPlannerPage dataset={dataset} selectedKeys={selectedKeys} /></Suspense>;
   if (tab === 'dependencies') {
     const displayScope = makeDependencyScope(dataset, scope);

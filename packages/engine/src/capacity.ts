@@ -1,4 +1,4 @@
-import type { IsoDate, Oncall, Pto, TeamHoliday, TeamMember, VelocityOverride } from '@ecp/shared';
+import { isHolidayDate, type IsoDate, type Oncall, type Pto, type TeamHoliday, type TeamMember, type VelocityOverride } from '@ecp/shared';
 import type { SprintWindow } from './calendar.js';
 
 interface DateRange {
@@ -16,7 +16,7 @@ export interface CapacityContext {
   ptoByMember: Map<string, DateRange[]>;
   oncallByMember: Map<string, DateRange[]>;
   overridesByMember: Map<string, VelocityOverride[]>;
-  holidayDates: Set<IsoDate>;
+  holidays: TeamHoliday[];
   oncallMultiplier: number;
 }
 
@@ -59,7 +59,7 @@ export function buildCapacityContext(inputs: CapacityInputs): CapacityContext {
     ptoByMember: groupRanges(inputs.pto),
     oncallByMember: groupRanges(inputs.oncall),
     overridesByMember,
-    holidayDates: new Set((inputs.holidays ?? []).map((holiday) => holiday.date)),
+    holidays: inputs.holidays ?? [],
     oncallMultiplier: inputs.oncallMultiplier,
   };
 }
@@ -106,7 +106,7 @@ export function memberDayFactor(
 export function dayCapacity(date: IsoDate, sprint: SprintWindow, ctx: CapacityContext): number {
   // Callers enumerate only configured working days. A holiday on a weekend is
   // therefore inert, while a holiday/PTO overlap is naturally deducted once.
-  if (ctx.holidayDates.has(date)) return 0;
+  if (isHolidayDate(ctx.holidays, date)) return 0;
   const workingDaysInSprint = sprint.workingDays.length;
   if (workingDaysInSprint === 0) return 0;
   let total = 0;

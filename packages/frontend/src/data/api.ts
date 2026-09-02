@@ -27,6 +27,7 @@ import type {
   TeamStandupAudioSettings,
   TeamSprintOutput,
   TeamHoliday,
+  AnnualHolidayRecurrence,
 } from '@ecp/shared';
 
 export interface StandupAggregate { session: StandupSession; participants: StandupParticipant[]; notes: StandupNote[]; checkIns: BandwidthCheckIn[]; }
@@ -49,10 +50,28 @@ export const refreshStandupMemberTickets = (sessionId: string, memberId: string)
 export const getStandupSprintProgress = (sessionId: string): Promise<StandupSprintProgressContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/sprint-progress`);
 export const refreshStandupSprintProgress = (sessionId: string): Promise<StandupSprintProgressContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/sprint-progress/refresh`);
 export const getCurrentSprintOutput = (teamId: string): Promise<TeamSprintOutput> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/current-sprint-output`);
-export const listTeamHolidays = (teamId: string, range: { start?: string; end?: string } = {}): Promise<{ holidays: TeamHoliday[] }> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/holidays${qs(range)}`);
-export const createTeamHoliday = (teamId: string, input: Pick<TeamHoliday, 'date' | 'name'>): Promise<TeamHoliday> => request('POST', `/api/teams/${encodeURIComponent(teamId)}/holidays`, input);
-export const updateTeamHoliday = (teamId: string, holidayId: string, input: Partial<Pick<TeamHoliday, 'date' | 'name'>>): Promise<TeamHoliday> => request('PUT', `/api/teams/${encodeURIComponent(teamId)}/holidays/${encodeURIComponent(holidayId)}`, input);
+export type TeamHolidayRuleInput = { name: string; recurrence: AnnualHolidayRecurrence };
+export const listTeamHolidays = (teamId: string): Promise<{ holidays: TeamHoliday[] }> => request('GET', `/api/teams/${encodeURIComponent(teamId)}/holidays`);
+export const createTeamHoliday = (teamId: string, input: TeamHolidayRuleInput): Promise<TeamHoliday> => request('POST', `/api/teams/${encodeURIComponent(teamId)}/holidays`, input);
+export const updateTeamHoliday = (teamId: string, holidayId: string, input: Partial<TeamHolidayRuleInput>): Promise<TeamHoliday> => request('PUT', `/api/teams/${encodeURIComponent(teamId)}/holidays/${encodeURIComponent(holidayId)}`, input);
 export const deleteTeamHoliday = (teamId: string, holidayId: string): Promise<void> => request('DELETE', `/api/teams/${encodeURIComponent(teamId)}/holidays/${encodeURIComponent(holidayId)}`);
+export interface SprintCeremonyAggregate { ceremony: { id: string; kind: 'planning' | 'review'; status: 'draft' | 'finalized' | 'completed'; revision: number; sprintName: string }; planItems: string[]; notes: Array<{ id: string; body: string; targetKind: string; targetLabel: string }>; comparisonNotes: Array<{ id: string; body: string; targetKind: string; targetLabel: string }>; snapshots: Array<{ id: string; purpose: string; capturedAt: string; payload: unknown }>; comparisonSnapshot: { id: string; purpose: string; payload: unknown } | null; }
+export const openSprintCeremony = (teamId: string, sprintId: string, kind: 'planning' | 'review'): Promise<SprintCeremonyAggregate> => request('POST', '/api/sprint-ceremonies/open', { teamId, sprintId, kind });
+export const addSprintPlanItem = (ceremonyId: string, workItemKey: string, expectedRevision: number): Promise<SprintCeremonyAggregate> => request('PUT', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/plan-items/${encodeURIComponent(workItemKey)}`, { expectedRevision });
+export const removeSprintPlanItem = (ceremonyId: string, workItemKey: string, expectedRevision: number): Promise<SprintCeremonyAggregate> => request('DELETE', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/plan-items/${encodeURIComponent(workItemKey)}`, { expectedRevision });
+export const reorderSprintPlanItems = (ceremonyId: string, workItemKeys: string[], expectedRevision: number): Promise<SprintCeremonyAggregate> => request('PUT', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/plan-items/order`, { workItemKeys, expectedRevision });
+export const finalizeSprintCeremony = (ceremonyId: string, expectedRevision: number, payload: unknown): Promise<SprintCeremonyAggregate> => {
+  const value = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const planning = Array.isArray(value.planItems);
+  if (!planning && !globalThis.confirm('This captures the sprint outcome as it stands now. Continue with this Review snapshot?')) return Promise.reject(new Error('Review completion was cancelled.'));
+  return request('POST', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/finalize`, { expectedRevision, payload: { ...value, acknowledgeActiveSprint: !planning } });
+};
+export const reopenSprintPlanning = (ceremonyId: string, expectedRevision: number): Promise<SprintCeremonyAggregate> => request('POST', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/reopen`, { expectedRevision });
+export const addSprintCeremonyNote = (ceremonyId: string, body: string, expectedRevision: number, target: { kind: 'global' | 'metric' | 'epic' | 'member'; key?: string; label: string; value?: unknown } = { kind: 'global', label: 'General' }): Promise<SprintCeremonyAggregate> => request('POST', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/notes`, { body, targetKind: target.kind, targetKey: target.key, targetLabel: target.label, targetValueJson: target.value, expectedRevision });
+export const deleteSprintCeremonyNote = (ceremonyId: string, noteId: string, expectedRevision: number): Promise<SprintCeremonyAggregate> => request('DELETE', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/notes/${encodeURIComponent(noteId)}`, { expectedRevision });
+export const updateSprintCeremonyNote = (ceremonyId: string, noteId: string, body: string, expectedRevision: number): Promise<SprintCeremonyAggregate> => request('PUT', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/notes/${encodeURIComponent(noteId)}`, { body, expectedRevision });
+export const reorderSprintCeremonyNotes = (ceremonyId: string, noteIds: string[], expectedRevision: number): Promise<SprintCeremonyAggregate> => request('PUT', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/notes/order`, { noteIds, expectedRevision });
+export const refreshSprintCeremony = (ceremonyId: string): Promise<{ ceremony: SprintCeremonyAggregate['ceremony']; context: { source: string; freshness: string; truncated: boolean; errorMessage?: string | null; items: Array<{ key: string }> } }> => request('POST', `/api/sprint-ceremonies/${encodeURIComponent(ceremonyId)}/refresh`);
 export const getStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext | null> => request('GET', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests`);
 export const refreshStandupIntakeRequests = (sessionId: string): Promise<StandupIntakeContext> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/refresh`);
 export const createIntakeAwareness = (sessionId: string, jiraKey: string, input: { awareDate: string; dateConfidence: IntakeAwarenessConfidence; notes?: string }): Promise<IntakeAwarenessRecord> => request('POST', `/api/standups/${encodeURIComponent(sessionId)}/intake-requests/${encodeURIComponent(jiraKey)}/awareness`, input);

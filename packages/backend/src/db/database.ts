@@ -58,6 +58,17 @@ function migrate(db: Db): void {
   ensureColumn(db, 'sprint', 'state', 'TEXT');
   ensureColumn(db, 'sprint', 'goal', 'TEXT');
   ensureColumn(db, 'sprint', 'origin_board_id', 'TEXT');
+  // Recurring team holidays replace the initial one-off `date` contract. The
+  // legacy date remains for old SQLite files whose NOT NULL constraint cannot
+  // be removed additively; repository writes supply an internal anchor value.
+  ensureColumn(db, 'team_holiday', 'recurrence_kind', 'TEXT');
+  ensureColumn(db, 'team_holiday', 'month', 'INTEGER');
+  ensureColumn(db, 'team_holiday', 'day', 'INTEGER');
+  ensureColumn(db, 'team_holiday', 'weekday', 'INTEGER');
+  ensureColumn(db, 'team_holiday', 'ordinal', 'TEXT');
+  ensureColumn(db, 'team_holiday', 'observed_policy', 'TEXT');
+  ensureColumn(db, 'team_holiday', 'created_at', 'TEXT');
+  ensureColumn(db, 'team_holiday', 'updated_at', 'TEXT');
   ensureColumn(db, 'bandwidth_check_in', 'session_id', 'TEXT');
   ensureColumn(db, 'standup_note', 'note_state', "TEXT NOT NULL DEFAULT 'open'");
   ensureColumn(db, 'standup_note', 'completed_at', 'TEXT');
@@ -77,7 +88,11 @@ function migrate(db: Db): void {
   // This index references a column introduced above, so it must be created
   // after additive migrations when opening databases from older releases.
   db.exec('CREATE INDEX IF NOT EXISTS idx_epic_active ON epic(active)');
-  db.exec('CREATE TABLE IF NOT EXISTS team_holiday (id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE, date TEXT NOT NULL, name TEXT NOT NULL, UNIQUE(team_id, date, name)); CREATE INDEX IF NOT EXISTS idx_team_holiday_date ON team_holiday(team_id, date, name)');
+  db.exec("CREATE TABLE IF NOT EXISTS team_holiday (id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE, date TEXT, name TEXT NOT NULL, recurrence_kind TEXT, month INTEGER, day INTEGER, weekday INTEGER, ordinal TEXT, observed_policy TEXT, created_at TEXT, updated_at TEXT); CREATE INDEX IF NOT EXISTS idx_team_holiday_date ON team_holiday(team_id, date, name); CREATE INDEX IF NOT EXISTS idx_team_holiday_rule ON team_holiday(team_id, recurrence_kind, month, day, weekday, ordinal)");
+  // Every previous holiday date becomes an annual fixed-date rule. The
+  // migration timestamp is deliberately stable because this app has no audit
+  // history yet and reproducible snapshots matter more than wall-clock noise.
+  db.prepare("UPDATE team_holiday SET recurrence_kind = 'fixed-date', month = CAST(substr(date, 6, 2) AS INTEGER), day = CAST(substr(date, 9, 2) AS INTEGER), observed_policy = 'none', created_at = COALESCE(created_at, '1970-01-01T00:00:00.000Z'), updated_at = COALESCE(updated_at, '1970-01-01T00:00:00.000Z') WHERE recurrence_kind IS NULL AND date IS NOT NULL").run();
   db.exec(`CREATE TABLE IF NOT EXISTS standup_note_mention (
     note_id TEXT NOT NULL REFERENCES standup_note(id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK(position >= 0),

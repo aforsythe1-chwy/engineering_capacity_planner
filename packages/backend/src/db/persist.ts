@@ -1,4 +1,4 @@
-import type { DomainDataset, Setting } from '@ecp/shared';
+import { holidayOccurrenceForYear, type DomainDataset, type Setting, type TeamHoliday } from '@ecp/shared';
 import type { Db } from './database.js';
 import { DELETE_ORDER } from './schema.js';
 
@@ -66,7 +66,8 @@ export function replaceDatasetRows(db: Db, dataset: DomainDataset): void {
      VALUES (@id, @memberId, @startDate, @endDate, @note)`,
   );
   const insertHoliday = db.prepare(
-    'INSERT INTO team_holiday (id, team_id, date, name) VALUES (@id, @teamId, @date, @name)',
+    `INSERT INTO team_holiday (id, team_id, date, name, recurrence_kind, month, day, weekday, ordinal, observed_policy, created_at, updated_at)
+     VALUES (@id, @teamId, @date, @name, @recurrenceKind, @month, @day, @weekday, @ordinal, @observedPolicy, @createdAt, @updatedAt)`,
   );
   const insertBandwidthCheckIn = db.prepare(
     `INSERT INTO bandwidth_check_in (member_id, check_in_date, session_id, feeling, note, created_at, updated_at)
@@ -135,7 +136,7 @@ export function replaceDatasetRows(db: Db, dataset: DomainDataset): void {
     for (const v of dataset.velocityOverrides) insertVelocity.run({ ...v, note: v.note ?? null });
     for (const p of dataset.pto) insertPto.run({ ...p, note: p.note ?? null });
     for (const o of dataset.oncall) insertOncall.run({ ...o, note: o.note ?? null });
-    for (const holiday of dataset.holidays ?? []) insertHoliday.run(holiday);
+    for (const holiday of dataset.holidays ?? []) insertHoliday.run(holidayToRow(holiday));
     for (const checkIn of dataset.bandwidthCheckIns ?? []) {
       insertBandwidthCheckIn.run({ ...checkIn, sessionId: checkIn.sessionId ?? null, note: checkIn.note ?? null });
     }
@@ -246,7 +247,7 @@ export function readDataset(db: Db): DomainDataset {
         endDate: r.end_date,
         note: r.note ?? null,
       })),
-    holidays: db.prepare('SELECT * FROM team_holiday ORDER BY team_id, date, name COLLATE NOCASE, id').all().map((r: any) => ({ id: r.id, teamId: r.team_id, date: r.date, name: r.name })),
+    holidays: db.prepare('SELECT * FROM team_holiday ORDER BY team_id, name COLLATE NOCASE, recurrence_kind, month, day, weekday, ordinal, id').all().map(holidayFromRow),
     bandwidthCheckIns: db
       .prepare('SELECT * FROM bandwidth_check_in ORDER BY check_in_date ASC, member_id ASC')
       .all()
@@ -361,4 +362,28 @@ export function readDataset(db: Db): DomainDataset {
         }),
       ),
   };
+}
+
+const HOLIDAY_ANCHOR_YEAR = 2000;
+function holidayToRow(holiday: TeamHoliday): Record<string, unknown> {
+  const recurrence = holiday.recurrence;
+  if (!recurrence) {
+    return { id: holiday.id, teamId: holiday.teamId, date: holiday.date ?? null, name: holiday.name, recurrenceKind: null, month: null, day: null, weekday: null, ordinal: null, observedPolicy: null, createdAt: null, updatedAt: null };
+  }
+  const anchor = holidayOccurrenceForYear(holiday, HOLIDAY_ANCHOR_YEAR)?.date ?? null;
+  return {
+    id: holiday.id, teamId: holiday.teamId, date: anchor, name: holiday.name,
+    recurrenceKind: recurrence.kind, month: recurrence.month,
+    day: recurrence.kind === 'fixed-date' ? recurrence.day : null,
+    weekday: recurrence.kind === 'nth-weekday' ? recurrence.weekday : null,
+    ordinal: recurrence.kind === 'nth-weekday' ? String(recurrence.ordinal) : null,
+    observedPolicy: recurrence.observedPolicy,
+    createdAt: null, updatedAt: null,
+  };
+}
+
+function holidayFromRow(r: any): TeamHoliday {
+  if (r.recurrence_kind === 'fixed-date') return { id: r.id, teamId: r.team_id, name: r.name, recurrence: { kind: 'fixed-date', month: r.month, day: r.day, observedPolicy: r.observed_policy ?? 'none' } };
+  if (r.recurrence_kind === 'nth-weekday') return { id: r.id, teamId: r.team_id, name: r.name, recurrence: { kind: 'nth-weekday', month: r.month, weekday: r.weekday, ordinal: r.ordinal === 'last' ? 'last' : Number(r.ordinal) as 1 | 2 | 3 | 4, observedPolicy: 'none' } };
+  return { id: r.id, teamId: r.team_id, name: r.name, ...(r.date == null ? {} : { date: r.date }) };
 }

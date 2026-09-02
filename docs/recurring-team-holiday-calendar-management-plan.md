@@ -1,10 +1,10 @@
 # Recurring Team Holiday Calendar Management — Durable Implementation Plan
 
-**Status:** Proposed
+**Status:** In progress — Slice 1 implemented; manual validation pending
 
 **Created:** 2026-08-31
 
-**Last updated:** 2026-08-31 — initial repository-backed plan
+**Last updated:** 2026-08-31 — implemented shared annual recurrence resolver with legacy-read compatibility
 
 **Scope:** turn the current date-specific `TeamHoliday` foundation into annual holiday rules,
 surface holiday occurrences on the portfolio Calendar, and add Calendar-owned create/edit/delete
@@ -17,6 +17,11 @@ one list, and trust that the same occurrences reduce capacity everywhere in the 
 **Constraints:** no Spec Kit/SDD; local single-user SQLite architecture; preserve flat navigation,
 epic-filter independence, shared-capacity truth, existing global important-date semantics, and the
 repository's additive migration expectations
+
+**2026-09-01 extension:** unify the planner's calendar presentation surfaces behind one reusable
+month-grid primitive and add drag-and-drop for user-owned calendar objects. This is explicitly
+approved product direction. It must preserve read-only treatment for derived planning facts and
+must not use drag/drop to silently change a recurring holiday's meaning.
 
 ## 1. Product outcome
 
@@ -421,6 +426,8 @@ pass and the continuation section names the next exact action.
 
 ### Slice 1 — Recurrence contracts and pure resolver
 
+**Status:** Implemented — manual validation pending
+
 **Files/subsystems:**
 
 - `packages/shared/src/domain.ts`
@@ -435,6 +442,14 @@ pass and the continuation section names the next exact action.
 4. Test year boundaries, February 29, weekend observance, same-day rules, and invalid ranges.
 
 **Exit:** Labor Day and fixed/observed holidays resolve deterministically for any bounded year range.
+
+**Implementation record (2026-08-31):** Added `AnnualHolidayRecurrence`, derived
+`TeamHolidayOccurrence`, a shared `holidays.ts` resolver, and focused tests. The resolver covers
+Labor Day, last-weekday, leap-day, observed fixed-date, cross-year observed dates, deterministic
+ordering, and exact legacy-date read compatibility. `capacity.ts` now calls the resolver rather
+than maintaining a separate exact-date set. The database still writes date-specific rows until
+Slice 2 migrates persistence, so recurrence fields remain optional in the domain only as a
+deliberate compatibility bridge.
 
 ### Slice 2 — Persistence migration and CRUD
 
@@ -537,6 +552,86 @@ their occurrences and capacity effect.
 
 **Exit:** recurring holiday management is tested end-to-end and documented as the one holiday
 source shared by Calendar, capacity, and Sprint Overview.
+
+### Slice 7 — Shared calendar primitive and drag/drop interaction
+
+**Files/subsystems:**
+
+- new `packages/frontend/src/components/PlannerMonthCalendar.tsx`
+- `PortfolioMonthCalendar.tsx`, `ProjectionCalendar.tsx`, and `AvailabilityCalendar.tsx`
+- calendar event/range view-model helpers and mutation adapters
+- `styles.css`, frontend unit tests, Playwright, and visual coverage
+
+**Verified starting point:** PortfolioMonthCalendar and ProjectionCalendar each independently own
+month-grid navigation, layers, event disclosure, and overlay geometry. AvailabilityCalendar is a
+separate horizontal range visualization. Gantt already demonstrates safe native drag payloads and
+drop-target styling. The three planners must not retain independently drifting grid/drag behavior.
+
+**Target primitive contract:**
+
+```ts
+type PlannerCalendarItem = {
+  id: string;
+  date: IsoDate;
+  label: string;
+  accessibleLabel: string;
+  tone: string;
+  draggable?: boolean;
+  dragKind?: 'important-date' | 'epic-milestone' | 'availability-range' | 'holiday-rule';
+};
+
+type PlannerMonthCalendarProps = {
+  today: IsoDate;
+  initialMonth?: IsoDate;
+  items: PlannerCalendarItem[];
+  renderItem?: (item: PlannerCalendarItem) => ReactNode;
+  renderWeekOverlay?: (week: IsoDate[]) => ReactNode;
+  onDropItem?: (item: PlannerCalendarItem, targetDate: IsoDate) => Promise<void> | void;
+  readonly?: boolean;
+  // toolbar, layers, empty state, and calendar-specific slots remain explicit
+};
+```
+
+The primitive owns seven-day grid geometry, month navigation, keyboard focus, dense-day disclosure,
+drop-target state, and a typed native drag payload. Consumers own domain model construction,
+overlay bars, filtering, editing, and persistence mutations. It is not a generic data store and it
+does not recalculate portfolio capacity.
+
+**Drag/drop rules:**
+
+- Global important dates and epic milestones can move to a target day; their existing update APIs
+  persist the new date.
+- Availability ranges move as a whole while preserving their inclusive duration; the existing
+  PTO/on-call/override update API must be added or reused before enabling the gesture.
+- Holiday occurrences are not directly movable: a recurring rule such as Labor Day cannot be
+  truthfully converted by moving one occurrence. Dragging an editable holiday opens its rule editor
+  with an explanation; derived/read-only occurrences do not start a drag.
+- Sprint bands, shared-load bands, projected completion, and any capacity-derived overlays are
+  read-only and never drag sources or drop targets.
+- A drop is also available by keyboard: focus a draggable item, invoke Move, select/focus a target
+  day, then confirm. Native pointer drag is an enhancement, never the only editing path.
+- Drop validates editable state and target date before mutation; on failure it restores focus and
+  shows an inline/status error without optimistic date fabrication.
+
+**Availability adoption:** Replace the bespoke horizontal `AvailabilityCalendar` layout with the
+shared month primitive only after its range rendering adapter can preserve PTO/on-call/override
+visibility, member identity, duration, delete affordance, and narrow-screen usability. A range is
+represented by a start-day item plus a rendered multi-day overlay. Do not reduce a range to a
+misleading single-date pill.
+
+**Implementation order:**
+
+1. Extract primitive from PortfolioMonthCalendar without behavior change, with test coverage for
+   navigation, layers, dense disclosure, focus, and existing overlays.
+2. Adopt it in PortfolioMonthCalendar and add editable global-date/milestone drag adapters.
+3. Convert the unused/legacy ProjectionCalendar to the primitive and remove duplicated grid helpers.
+4. Add availability range adapter and move/keyboard-edit behavior.
+5. Add holiday events as Slice 4 requires; keep recurrence edits in the modal rather than direct
+   drag-to-date conversion.
+
+**Exit:** every planner calendar surface renders through one accessible month-grid primitive, and
+every user-owned, date-based object has truthful pointer and keyboard move behavior without making
+derived capacity facts editable.
 
 ## 8. Failure, concurrency, migration, security, accessibility, and observability
 
@@ -695,6 +790,8 @@ Required focused coverage:
 - Adding a new primary navigation page or making Calendar subordinate to a team/epic.
 - Reworking global important-date, epic relevant-day, PTO, or on-call semantics.
 - Hosted multi-user authorization, audit history, or real-time collaboration.
+- Dragging a recurring holiday occurrence to redefine its recurrence. Use Edit to change the rule.
+- Dragging derived sprint, load, or projected-completion bars.
 
 ## 12. Assumptions and deferred decisions
 
@@ -719,17 +816,21 @@ Required focused coverage:
    to the authoritative Holiday modal.
 6. Holiday history/versioning if edits after completed historical sprint snapshots need audit
    treatment. Frozen Sprint Overview snapshots must retain their captured occurrence facts.
+7. Whether a future mobile/touch gesture should use long-press drag versus the required keyboard
+   Move action. The first release must work with mouse/pointer and keyboard before adding gesture
+   heuristics.
 
 ## 13. Continuation instructions
 
-**Current status:** planning complete. The worktree contains an in-progress exact-date holiday
-foundation (domain, schema, CRUD, API client, and partial capacity wiring), but no recurrence model,
-Calendar events, Calendar management UI, tracked list, or focused holiday tests. This plan does not
-claim those existing changes are complete or accepted.
+**Current status:** Slice 1 is implemented and awaits manual validation. The worktree contains the
+date-specific persistence foundation plus the new shared annual recurrence resolver and
+recurrence-aware capacity check. Calendar events, Calendar management UI, tracked list, recurrence
+persistence migration, focused backend/frontend holiday tests, and shared-calendar drag/drop work
+remain.
 
-**Next action:** implement Slice 1 by replacing the date-specific public contract with the annual
-recurrence union and adding the pure shared occurrence resolver/tests. Do not build the modal before
-that resolver establishes the authoritative Labor Day and observance semantics.
+**Next action:** after accepting Slice 1's Labor Day/observance behavior, implement Slice 2: migrate
+the date-specific `team_holiday` persistence contract and CRUD payloads to annual recurrence rules.
+Do not build the Calendar modal before that migration makes recurrence durable.
 
 **First files to inspect:**
 

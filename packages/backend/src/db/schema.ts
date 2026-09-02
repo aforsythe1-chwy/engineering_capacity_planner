@@ -60,9 +60,18 @@ CREATE TABLE IF NOT EXISTS oncall (
 CREATE TABLE IF NOT EXISTS team_holiday (
   id      TEXT PRIMARY KEY,
   team_id TEXT NOT NULL REFERENCES team(id) ON DELETE CASCADE,
-  date    TEXT NOT NULL,
+  -- Retained as a nullable compatibility anchor while older local databases
+  -- migrate from one-off dates to annual rules. It is never capacity truth.
+  date    TEXT,
   name    TEXT NOT NULL,
-  UNIQUE(team_id, date, name)
+  recurrence_kind TEXT,
+  month INTEGER,
+  day INTEGER,
+  weekday INTEGER,
+  ordinal TEXT,
+  observed_policy TEXT,
+  created_at TEXT,
+  updated_at TEXT
 );
 
 -- One self-reported workload signal per member and local calendar day. This is
@@ -317,6 +326,67 @@ CREATE TABLE IF NOT EXISTS intake_request_awareness (
   created_at TEXT NOT NULL
 );
 
+-- Sprint Overview history deliberately sits outside the sync-owned dataset.
+CREATE TABLE IF NOT EXISTS sprint_ceremony (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES team(id) ON DELETE RESTRICT,
+  sprint_id TEXT NOT NULL,
+  sprint_name TEXT NOT NULL,
+  sprint_start_date TEXT NOT NULL,
+  sprint_end_date TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('planning', 'review')),
+  status TEXT NOT NULL CHECK(status IN ('draft', 'finalized', 'completed')),
+  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+  active_snapshot_id TEXT,
+  comparison_snapshot_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finalized_at TEXT,
+  UNIQUE(team_id, sprint_id, kind)
+);
+CREATE TABLE IF NOT EXISTS sprint_plan_item (
+  ceremony_id TEXT NOT NULL REFERENCES sprint_ceremony(id) ON DELETE CASCADE,
+  work_item_key TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  added_at TEXT NOT NULL,
+  PRIMARY KEY(ceremony_id, work_item_key), UNIQUE(ceremony_id, position)
+);
+CREATE TABLE IF NOT EXISTS sprint_ceremony_snapshot (
+  id TEXT PRIMARY KEY,
+  ceremony_id TEXT NOT NULL REFERENCES sprint_ceremony(id) ON DELETE RESTRICT,
+  version INTEGER NOT NULL CHECK(version > 0),
+  purpose TEXT NOT NULL CHECK(purpose IN ('planning-baseline', 'review-outcome')),
+  schema_version INTEGER NOT NULL,
+  captured_at TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('jira', 'stored', 'mixed')),
+  freshness TEXT NOT NULL CHECK(freshness IN ('fresh', 'stale', 'unavailable')),
+  truncated INTEGER NOT NULL CHECK(truncated IN (0, 1)),
+  payload_json TEXT NOT NULL,
+  UNIQUE(ceremony_id, version)
+);
+CREATE TABLE IF NOT EXISTS sprint_ceremony_note (
+  id TEXT PRIMARY KEY,
+  ceremony_id TEXT NOT NULL REFERENCES sprint_ceremony(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  target_kind TEXT NOT NULL CHECK(target_kind IN ('global', 'metric', 'epic', 'member')),
+  target_key TEXT,
+  target_label TEXT NOT NULL,
+  target_value_json TEXT,
+  position INTEGER NOT NULL CHECK(position >= 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(ceremony_id, position)
+);
+CREATE TABLE IF NOT EXISTS sprint_ceremony_draft_context (
+  ceremony_id TEXT PRIMARY KEY REFERENCES sprint_ceremony(id) ON DELETE CASCADE,
+  captured_at TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('jira', 'stored', 'mixed')),
+  freshness TEXT NOT NULL CHECK(freshness IN ('fresh', 'stale', 'unavailable')),
+  truncated INTEGER NOT NULL CHECK(truncated IN (0, 1)),
+  error_message TEXT,
+  payload_json TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_member_team       ON team_member(team_id);
 CREATE INDEX IF NOT EXISTS idx_bandwidth_check_in_date ON bandwidth_check_in(check_in_date);
 CREATE INDEX IF NOT EXISTS idx_story_epic         ON user_story(epic_key);
@@ -336,6 +406,9 @@ CREATE INDEX IF NOT EXISTS idx_standup_audio_team_default_track ON standup_audio
 CREATE INDEX IF NOT EXISTS idx_standup_audio_member_override_track ON standup_audio_member_override(track_id);
 CREATE INDEX IF NOT EXISTS idx_intake_awareness_date ON intake_request_awareness(aware_date, jira_key);
 CREATE INDEX IF NOT EXISTS idx_team_holiday_date ON team_holiday(team_id, date, name);
+CREATE INDEX IF NOT EXISTS idx_sprint_ceremony_team_sprint ON sprint_ceremony(team_id, sprint_id, kind);
+CREATE INDEX IF NOT EXISTS idx_sprint_ceremony_snapshot_ceremony ON sprint_ceremony_snapshot(ceremony_id, version);
+CREATE INDEX IF NOT EXISTS idx_sprint_ceremony_draft_context_captured ON sprint_ceremony_draft_context(captured_at);
 `;
 
 /** Order tables must be inserted into to satisfy foreign keys. */
