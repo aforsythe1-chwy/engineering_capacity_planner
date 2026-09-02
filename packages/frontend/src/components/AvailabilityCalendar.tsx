@@ -1,3 +1,4 @@
+import { addDays, diffDays, formatIso, parseIso, type IsoDate } from '@ecp/shared';
 import type { AvailabilityEntry } from '../lib/availability';
 import { KIND_LABEL } from '../lib/availability';
 import { computeDomain, makeScale, monthTicks } from '../lib/timeline';
@@ -8,6 +9,7 @@ interface AvailabilityCalendarProps {
   entries: AvailabilityEntry[];
   disabled: boolean;
   onDelete: (entry: AvailabilityEntry) => void;
+  onMove: (entry: AvailabilityEntry, startDate: IsoDate, endDate: IsoDate) => void;
 }
 
 const todayIso = (): string => new Date().toISOString().slice(0, 10);
@@ -20,7 +22,7 @@ const todayIso = (): string => new Date().toISOString().slice(0, 10);
  * avatar + initials inside so you can read who's out at a glance. A "today"
  * marker and month ticks give temporal context.
  */
-export function AvailabilityCalendar({ entries, disabled, onDelete }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ entries, disabled, onDelete, onMove }: AvailabilityCalendarProps) {
   if (entries.length === 0) {
     return <div className="hint empty" data-testid="availability-empty">No availability entries yet. Use “Add” to create one.</div>;
   }
@@ -41,7 +43,7 @@ export function AvailabilityCalendar({ entries, disabled, onDelete }: Availabili
         <span className="cal-today" style={{ left: pct(today) }} title={`Today — ${formatDate(today)}`} />
       </div>
 
-      <div className="cal-rows">
+      <div className="cal-rows" onDragOver={(event) => { if (!disabled) event.preventDefault(); }} onDrop={(event) => { const id = event.dataTransfer.getData('application/x-ecp-availability'); if (!id || disabled) return; const entry = entries.find((item) => item.id === id); const bounds = event.currentTarget.getBoundingClientRect(); if (!entry || !bounds.width) return; const fraction = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)); const start = dateAtFraction(domain.start, domain.end, fraction); const duration = diffDays(entry.startDate, entry.endDate); onMove(entry, start, addDays(start, duration)); }}>
         {/* The today line spans the whole row stack. */}
         <span className="cal-today-line" style={{ left: pct(today) }} />
         {entries.map((e) => {
@@ -59,6 +61,8 @@ export function AvailabilityCalendar({ entries, disabled, onDelete }: Availabili
                 className={`cal-band kind-${e.kind}`}
                 style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
                 title={title}
+                draggable={!disabled}
+                onDragStart={(event) => event.dataTransfer.setData('application/x-ecp-availability', e.id)}
               >
                 <MemberAvatar name={e.memberName} color={e.color} size={20} />
                 <span className="cal-band-text">{bandText}</span>
@@ -87,4 +91,9 @@ export function AvailabilityCalendar({ entries, disabled, onDelete }: Availabili
       </div>
     </div>
   );
+}
+
+function dateAtFraction(start: IsoDate, end: IsoDate, fraction: number): IsoDate {
+  const days = diffDays(start, end);
+  return formatIso(new Date(parseIso(start).getTime() + Math.round(days * fraction) * 86_400_000));
 }

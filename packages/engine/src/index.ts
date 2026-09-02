@@ -43,6 +43,7 @@ export {
   resolveEpicWorkload,
 } from './workload.js';
 export { projectPortfolioFromDataset, type PortfolioProjection, type PortfolioEpicProjection, type PortfolioHealth } from './portfolio.js';
+export { buildSprintPlanningOutlook, type SprintPlanningOutlookRow } from './sprint-planning.js';
 export {
   type GraphEdge,
   type GraphNodeAnalysis,

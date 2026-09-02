@@ -143,6 +143,49 @@ export interface Oncall {
   note?: string | null;
 }
 
+/** How a fixed-date holiday is observed when it falls on a weekend. */
+export type HolidayObservedPolicy = 'none' | 'nearest-weekday';
+
+/** A bounded annual recurrence supported by the planner. */
+export type AnnualHolidayRecurrence =
+  | {
+      kind: 'fixed-date';
+      month: number;
+      day: number;
+      observedPolicy: HolidayObservedPolicy;
+    }
+  | {
+      kind: 'nth-weekday';
+      month: number;
+      weekday: Weekday;
+      ordinal: 1 | 2 | 3 | 4 | 'last';
+      observedPolicy: 'none';
+    };
+
+/** A derived instance of a recurring team holiday. Never persisted. */
+export interface TeamHolidayOccurrence {
+  holidayId: string;
+  teamId: string;
+  name: string;
+  date: IsoDate;
+  observed: boolean;
+}
+
+/** A full-day, team-wide holiday. Unlike portfolio important dates, this is a
+ * capacity input and therefore intentionally belongs to the team.
+ *
+ * `date` is a temporary read-compatible legacy field while existing local
+ * date-specific rows are migrated to `recurrence`. New writes must use
+ * `recurrence`; consumers should resolve occurrences through `holidays.ts`.
+ */
+export interface TeamHoliday {
+  id: string;
+  teamId: string;
+  name: string;
+  recurrence?: AnnualHolidayRecurrence;
+  date?: IsoDate;
+}
+
 // ---------------------------------------------------------------------------
 // Work hierarchy
 // ---------------------------------------------------------------------------
@@ -332,6 +375,10 @@ export interface Sprint {
   name: string;
   startDate: IsoDate;
   endDate: IsoDate;
+  /** Jira lifecycle metadata retained for Sprint Overview defaulting. */
+  state?: 'future' | 'active' | 'closed' | null;
+  goal?: string | null;
+  originBoardId?: string | null;
 }
 
 /**
@@ -366,6 +413,33 @@ export interface Setting {
   scopeId: string | null;
   /** JSON-encoded value. */
   value: string;
+}
+
+// ---------------------------------------------------------------------------
+// Sprint ceremonies (kept outside DomainDataset; loaded through focused APIs)
+// ---------------------------------------------------------------------------
+
+export type SprintCeremonyKind = 'planning' | 'review';
+export type SprintCeremonyStatus = 'draft' | 'finalized' | 'completed';
+export type SprintCeremonyNoteTargetKind = 'global' | 'metric' | 'epic' | 'member';
+
+export interface SprintCeremony {
+  id: string; teamId: string; sprintId: string; sprintName: string;
+  sprintStartDate: IsoDate; sprintEndDate: IsoDate; kind: SprintCeremonyKind;
+  status: SprintCeremonyStatus; revision: number; activeSnapshotId: string | null;
+  comparisonSnapshotId: string | null; createdAt: string; updatedAt: string; finalizedAt: string | null;
+}
+
+export interface SprintCeremonySnapshot {
+  id: string; ceremonyId: string; version: number; purpose: 'planning-baseline' | 'review-outcome';
+  schemaVersion: number; capturedAt: string; source: 'jira' | 'stored' | 'mixed';
+  freshness: 'fresh' | 'stale' | 'unavailable'; truncated: boolean; payload: unknown;
+}
+
+export interface SprintCeremonyNote {
+  id: string; ceremonyId: string; body: string; targetKind: SprintCeremonyNoteTargetKind;
+  targetKey: string | null; targetLabel: string; targetValueJson: string | null;
+  position: number; createdAt: string; updatedAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,6 +625,8 @@ export interface DomainDataset {
   velocityOverrides: VelocityOverride[];
   pto: Pto[];
   oncall: Oncall[];
+  /** Local, team-wide capacity inputs; never sourced from Jira. */
+  holidays?: TeamHoliday[];
   epics: Epic[];
   portfolioEpics?: PortfolioEpic[];
   /** Optional while older fixtures and database snapshots are migrated. */

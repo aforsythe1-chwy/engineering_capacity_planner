@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Oncall, Pto, Team, TeamMember, VelocityOverride } from '@ecp/shared';
+import type { Oncall, Pto, Team, TeamHoliday, TeamMember, VelocityOverride } from '@ecp/shared';
 import { sprintByIndex } from '../src/calendar.js';
 import {
   buildCapacityContext,
@@ -134,5 +134,17 @@ describe('sprintCapacity', () => {
       { id: 'o', memberId: 'M1', startDate: sprint.start, endDate: sprint.end },
     ];
     expect(sprintCapacity(sprint, ctxOf({ oncall }))).toBeCloseTo(5, 9);
+  });
+
+  it('removes a recurring team holiday once, even when PTO overlaps it', () => {
+    const holidays: TeamHoliday[] = [{ id: 'labor-day', teamId: 't', name: 'Labor Day', recurrence: { kind: 'nth-weekday', month: 1, weekday: 3, ordinal: 1, observedPolicy: 'none' } }];
+    const pto: Pto[] = [{ id: 'pto', memberId: 'M1', startDate: WORKDAY, endDate: WORKDAY }];
+    expect(dayCapacity(WORKDAY, sprint, ctxOf({ holidays, pto }))).toBe(0);
+    expect(sprintCapacity(sprint, ctxOf({ holidays, pto }))).toBeCloseTo(9, 9);
+  });
+
+  it('does not change capacity when no holiday rule applies', () => {
+    const holidays: TeamHoliday[] = [{ id: 'december', teamId: 't', name: 'Shutdown', recurrence: { kind: 'fixed-date', month: 12, day: 25, observedPolicy: 'none' } }];
+    expect(sprintCapacity(sprint, ctxOf({ holidays }))).toBeCloseTo(10, 9);
   });
 });

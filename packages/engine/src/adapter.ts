@@ -41,6 +41,7 @@ export function projectEpicFromDataset(
   const pto = dataset.pto.filter((p) => memberIds.has(p.memberId));
   const oncall = dataset.oncall.filter((o) => memberIds.has(o.memberId));
   const velocityOverrides = dataset.velocityOverrides.filter((v) => memberIds.has(v.memberId));
+  const holidays = (dataset.holidays ?? []).filter((holiday) => holiday.teamId === team.id);
 
   return project({
     today,
@@ -48,6 +49,7 @@ export function projectEpicFromDataset(
     members,
     pto,
     oncall,
+    holidays,
     velocityOverrides,
     workItems,
     unrefinedRemainingPoints: workload.unrefinedRemainingPoints,

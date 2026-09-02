@@ -17,10 +17,11 @@ import { makeDependencyScope, makeGanttScope } from './lib/plannerPageScopes';
 import { buildPlannerScope, type Scenario } from './lib/projection';
 import { type PlannerTab, usePlannerRoute } from './lib/router';
 import { effectivePlanningDate } from './lib/planningDate';
+import { SprintOverviewPage } from './components/SprintOverviewPage';
 
 const IncrementPlannerPage = lazy(() => import('./components/IncrementPlannerPage').then((module) => ({ default: module.IncrementPlannerPage })));
 
-const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Calendar'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['increments', 'Increment Planner'], ['team', 'Team'], ['standup', 'Standup'], ['configuration', 'Configuration']];
+const tabs: Array<[PlannerTab, string]> = [['overview', 'Overview'], ['timeline', 'Calendar'], ['dependencies', 'Dependencies'], ['gantt', 'Gantt Planner'], ['increments', 'Increment Planner'], ['team', 'Team'], ['standup', 'Standup'], ['sprints', 'Sprint Overview'], ['configuration', 'Configuration']];
 
 export function App() {
   const [state, setState] = useState<{ status: 'loading' } | { status: 'ready'; dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; jiraRequestDebug: boolean; testMode: boolean }>({ status: 'loading' });
@@ -39,15 +40,15 @@ function Planner({ dataset, source, dataSource, testMode, onReload }: { dataset:
   const { route, navigate } = usePlannerRoute(activeKeys, teamKeys);
   const plannerScope = useMemo(() => buildPlannerScope(dataset, route.epics), [dataset, route.epics]);
   const [selection] = useState(() => ({ cutItemKeys: new Set<string>(), doneItemKeys: new Set<string>() }));
-  const changeFilter = useCallback((epics: string[]) => navigate({ tab: route.tab, epics: epics.slice(0, 1), team: route.team }), [navigate, route.tab, route.team]);
-  const changeTab = useCallback((tab: PlannerTab) => navigate({ tab, epics: route.epics, team: route.team }), [navigate, route.epics, route.team]);
-  const changeTeam = useCallback((team: string) => navigate({ tab: route.tab, epics: route.epics, team }), [navigate, route.epics, route.tab]);
+  const changeFilter = useCallback((epics: string[]) => navigate({ tab: route.tab, epics: epics.slice(0, 1), team: route.team, sprintMode: route.sprintMode, sprint: route.sprint }), [navigate, route]);
+  const changeTab = useCallback((tab: PlannerTab) => navigate({ tab, epics: route.epics, team: route.team, sprintMode: route.sprintMode, sprint: route.sprint }), [navigate, route]);
+  const changeTeam = useCallback((team: string) => navigate({ tab: route.tab, epics: route.epics, team, sprintMode: route.sprintMode, sprint: route.sprint }), [navigate, route]);
 
   if (dataset.epics.length === 0) return <EmptyLivePlanner dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} />;
   return <AppShell dataset={dataset} source={source} dataSource={dataSource} onReload={onReload} pickerOptions={portfolio.pickerOptions} selectedKeys={route.epics} onSelect={changeFilter} tab={route.tab} onTabChange={changeTab}>
     {route.invalidKeys.length > 0 && <div className="panel config-notice" role="status">{route.invalidKeys.join(', ')} is no longer tracked, so you are viewing all tracked epics.</div>}
     {route.tab !== 'standup' && <ScopeSummary selectedKeys={route.epics} activeCount={plannerScope.activeEpics.length} />}
-    <PlannerPage dataset={dataset} source={source} dataSource={dataSource} testMode={testMode} onReload={onReload} tab={route.tab} teamId={route.team ?? dataset.teams[0]?.id ?? null} selectedKeys={route.epics} scope={plannerScope} projection={projection} today={today} selection={selection} onSelect={changeFilter} onTeamChange={changeTeam} />
+  <PlannerPage dataset={dataset} source={source} dataSource={dataSource} testMode={testMode} onReload={onReload} tab={route.tab} teamId={route.team ?? dataset.teams[0]?.id ?? null} selectedKeys={route.epics} scope={plannerScope} projection={projection} today={today} selection={selection} onSelect={changeFilter} onTeamChange={changeTeam} sprintMode={route.sprintMode} sprintId={route.sprint} onSprintRouteChange={(sprintMode, sprint) => navigate({ tab: route.tab, epics: route.epics, team: route.team, sprintMode, sprint })} />
   </AppShell>;
 }
 
@@ -59,12 +60,13 @@ function ScopeSummary({ selectedKeys, activeCount }: { selectedKeys: string[]; a
   return <p className="scope-summary" role="status">{selectedKeys.length ? `Showing ${selectedKeys.join(', ')}; shared capacity still includes all ${activeCount} active epics.` : `Showing all ${activeCount} active epics.`}</p>;
 }
 
-function PlannerPage({ dataset, source, dataSource, testMode, onReload, tab, teamId, selectedKeys, scope, projection, today, selection, onSelect, onTeamChange }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; testMode: boolean; onReload: () => Promise<void>; tab: PlannerTab; teamId: string | null; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; today: string; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void; onTeamChange: (teamId: string) => void }) {
+function PlannerPage({ dataset, source, dataSource, testMode, onReload, tab, teamId, selectedKeys, scope, projection, today, selection, onSelect, onTeamChange, sprintMode, sprintId, onSprintRouteChange }: { dataset: DomainDataset; source: DatasetSource; dataSource: RuntimeDataSource; testMode: boolean; onReload: () => Promise<void>; tab: PlannerTab; teamId: string | null; selectedKeys: string[]; scope: ReturnType<typeof buildPlannerScope>; projection: ReturnType<typeof projectPortfolioFromDataset>; today: string; selection: { cutItemKeys: Set<string>; doneItemKeys: Set<string> }; onSelect: (keys: string[]) => void; onTeamChange: (teamId: string) => void; sprintMode: 'review' | 'planning'; sprintId: string | null; onSprintRouteChange: (mode: 'review' | 'planning', sprint: string | null) => void }) {
   if (tab === 'overview') return <PortfolioOverview dataset={dataset} projection={projection} selectedKeys={selectedKeys} onSelect={(key) => onSelect([key])} />;
   if (tab === 'timeline') return <PortfolioCalendarPage dataset={dataset} projection={projection} selectedKeys={selectedKeys} today={today} editable={source === 'api'} onReload={onReload} />;
   if (tab === 'configuration') return <Configuration dataset={dataset} teamId={scope.visibleEpics[0]?.teamId ?? dataset.teams[0]?.id ?? null} onFilter={onSelect} editable={source === 'api'} dataSource={dataSource} onReload={onReload} />;
   if (tab === 'team') return <TeamPage dataset={dataset} teamId={teamId} editable={source === 'api'} onReload={onReload} onTeamChange={onTeamChange} />;
   if (tab === 'standup') return <RunStandupPage dataset={dataset} projection={projection} teamId={teamId} editable={source === 'api'} testMode={testMode} onTeamChange={onTeamChange} />;
+  if (tab === 'sprints') return <SprintOverviewPage dataset={dataset} teamId={teamId} selectedKeys={selectedKeys} mode={sprintMode} sprintId={sprintId} editable={source === 'api'} onRouteChange={onSprintRouteChange} onTeamChange={onTeamChange} />;
   if (tab === 'increments') return <Suspense fallback={<div className="panel" role="status">Loading increment canvas…</div>}><IncrementPlannerPage dataset={dataset} selectedKeys={selectedKeys} /></Suspense>;
   if (tab === 'dependencies') {
     const displayScope = makeDependencyScope(dataset, scope);

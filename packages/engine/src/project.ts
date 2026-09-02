@@ -2,6 +2,7 @@ import type {
   IsoDate,
   Oncall,
   Pto,
+  TeamHoliday,
   Team,
   TeamMember,
   VelocityOverride,
@@ -25,6 +26,7 @@ export interface ProjectionInput {
   members: TeamMember[];
   pto?: Pto[];
   oncall?: Oncall[];
+  holidays?: TeamHoliday[];
   velocityOverrides?: VelocityOverride[];
   /** The epic's work items. Remaining points are derived from their statuses. */
   workItems: WorkItem[];
@@ -101,6 +103,7 @@ export function project(input: ProjectionInput): ProjectionResult {
     members: input.members,
     pto: input.pto ?? [],
     oncall: input.oncall ?? [],
+    holidays: input.holidays ?? [],
     velocityOverrides: input.velocityOverrides ?? [],
     oncallMultiplier: cfg.oncallMultiplier,
   });
